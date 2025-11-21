@@ -11,7 +11,9 @@ import json
 import hashlib
 from datetime import datetime, timedelta
 from collections import defaultdict
-from typing import Dict, List, Set, Optional
+from typing import Dict, List, Set, Optional, Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 import requests
 from dataclasses import dataclass, field
 from dotenv import load_dotenv
@@ -62,6 +64,9 @@ class GitHubReviewAnalyzer:
         # Statistics: user -> ReviewStats
         self.reviewed_by_me: Dict[str, ReviewStats] = defaultdict(ReviewStats)
         self.reviewed_by_others: Dict[str, ReviewStats] = defaultdict(ReviewStats)
+
+        # Thread safety for parallel processing
+        self._stats_lock = Lock()
 
     def _get_cache_key(self, repo: str, endpoint: str, params: Dict = None) -> str:
         """Generate a cache key for an API call."""
@@ -116,8 +121,17 @@ class GitHubReviewAnalyzer:
             'data': data
         }
 
-    def get_paginated(self, url: str, params: Dict = None, use_cache: bool = True) -> List[Dict]:
-        """Fetch all pages of a paginated GitHub API endpoint with caching support."""
+    def get_paginated(self, url: str, params: Dict = None, use_cache: bool = True,
+                      should_continue: Optional[Callable[[List[Dict]], bool]] = None) -> List[Dict]:
+        """Fetch all pages of a paginated GitHub API endpoint with caching support.
+
+        Args:
+            url: The API endpoint URL
+            params: Query parameters
+            use_cache: Whether to use caching
+            should_continue: Optional callback function that takes a page of results and returns
+                           False to stop pagination early, True to continue
+        """
         # Generate cache key
         cache_params = params.copy() if params else {}
         cache_params.pop('page', None)  # Don't include page in cache key
@@ -156,6 +170,11 @@ class GitHubReviewAnalyzer:
 
             results.extend(data)
 
+            # Check early termination callback
+            if should_continue and not should_continue(data):
+                logging.debug(f"Early termination triggered at page {page}")
+                break
+
             # Check if there are more pages
             if len(data) < per_page:
                 break
@@ -171,41 +190,110 @@ class GitHubReviewAnalyzer:
         return results
 
     def analyze_repository(self, repo: str, months: int = 3):
-        """Analyze PRs in a repository for the last N months."""
+        """Analyze PRs in a repository for the last N months based on merge date."""
         logging.info(f"Analyzing repository: {repo}")
 
         since_date = datetime.now() - timedelta(days=months * 30)
-        logging.info(f"Looking for PRs created since: {since_date.strftime('%Y-%m-%d')}")
+        logging.info(f"Looking for PRs merged since: {since_date.strftime('%Y-%m-%d')}")
 
-        # Fetch all PRs (both open and closed)
+        # Fetch PRs with early termination
         url = f"https://api.github.com/repos/{repo}/pulls"
 
-        logging.info("Fetching pull requests...")
+        print(f"Fetching pull requests from {repo}...")
         all_prs = []
+        total_fetched = 0
+
+        # Fetch both open and closed PRs
+        # For open PRs, we'll include them as they might be under review
+        # For closed PRs, we'll filter by merged_at date
         for state in ['open', 'closed']:
-            logging.debug(f"Fetching {state} PRs")
+            print(f"  Fetching {state} PRs...", end='', flush=True)
+            page_count = 0
+
+            def should_continue(page_data: List[Dict]) -> bool:
+                """Check if we should continue fetching more pages."""
+                nonlocal page_count
+                page_count += 1
+
+                # For open PRs, fetch all (they're currently being reviewed)
+                if state == 'open':
+                    return True
+
+                # For closed PRs, check if any PR in this page was merged within our date range
+                has_recent = False
+                for pr in page_data:
+                    # Check merged_at date if available
+                    if pr.get('merged_at'):
+                        merged_date = datetime.strptime(pr['merged_at'], '%Y-%m-%dT%H:%M:%SZ')
+                        if merged_date >= since_date:
+                            has_recent = True
+                            break
+
+                # If no recent merged PRs found in this page, stop pagination
+                if not has_recent:
+                    logging.info(f"Stopping pagination for {state} PRs at page {page_count} - all PRs older than cutoff date")
+                    return False
+
+                return True
+
+            # Sort by updated for open PRs, by merged_at isn't available directly, so we use updated
+            # The GitHub API doesn't support sorting by merged_at, so we fetch and filter
             prs = self.get_paginated(url, {
                 'state': state,
                 'sort': 'updated',
                 'direction': 'desc'
-            })
+            }, should_continue=should_continue if state == 'closed' else None)
+
             all_prs.extend(prs)
-            logging.debug(f"Found {len(prs)} {state} PRs")
+            total_fetched += len(prs)
+            print(f" fetched {len(prs)} PRs ({page_count} pages)")
 
-        # Filter PRs by date
-        recent_prs = [
-            pr for pr in all_prs
-            if datetime.strptime(pr['created_at'], '%Y-%m-%dT%H:%M:%SZ') >= since_date
-        ]
+        # Filter PRs by merge date (or include open PRs)
+        recent_prs = []
+        for pr in all_prs:
+            if pr['state'] == 'open':
+                # Include all open PRs as they're currently under review
+                recent_prs.append(pr)
+            elif pr.get('merged_at'):
+                # For merged PRs, check merge date
+                merged_date = datetime.strptime(pr['merged_at'], '%Y-%m-%dT%H:%M:%SZ')
+                if merged_date >= since_date:
+                    recent_prs.append(pr)
 
-        logging.info(f"Found {len(recent_prs)} PRs in the last {months} months (filtered from {len(all_prs)} total)")
+        print(f"Found {len(recent_prs)} PRs in the last {months} months (filtered from {total_fetched} fetched)")
 
-        for i, pr in enumerate(recent_prs, 1):
-            if i % 10 == 0:
-                logging.info(f"Processing PR {i}/{len(recent_prs)}...")
+        if not recent_prs:
+            logging.info(f"No PRs found for repository: {repo}")
+            return
 
-            self._analyze_pr(repo, pr)
+        # Process PRs in parallel
+        print(f"Analyzing {len(recent_prs)} PRs...")
+        completed = 0
+        max_workers = min(10, len(recent_prs))  # Limit concurrent requests
 
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all PR analysis tasks
+            future_to_pr = {
+                executor.submit(self._analyze_pr, repo, pr): pr
+                for pr in recent_prs
+            }
+
+            # Process completed tasks as they finish
+            for future in as_completed(future_to_pr):
+                pr = future_to_pr[future]
+                try:
+                    future.result()
+                    completed += 1
+
+                    # Show progress every 10 PRs or at completion
+                    if completed % 10 == 0 or completed == len(recent_prs):
+                        logger.info(f"  Progress: {completed}/{len(recent_prs)} PRs analyzed", flush=True)
+
+                except Exception as e:
+                    logging.error(f"Error analyzing PR #{pr['number']}: {e}", exc_info=True)
+                    completed += 1
+
+        print(f"Completed analysis of {repo}")
         logging.info(f"Completed analysis of repository: {repo}")
 
     def _analyze_pr(self, repo: str, pr: Dict):
@@ -221,34 +309,53 @@ class GitHubReviewAnalyzer:
             logging.debug(f"Skipping PR #{pr_number} by excluded user {pr_author}")
             return
 
-        # Fetch full PR details to get accurate additions/deletions
+        # Fetch PR details, reviews, and comments in parallel
         pr_details_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
-        pr_details_response = self.session.get(pr_details_url)
-
-        if pr_details_response.status_code != 200:
-            logging.warning(f"Failed to fetch PR details for #{pr_number}, using list data")
-            additions = pr.get('additions', 0)
-            deletions = pr.get('deletions', 0)
-        else:
-            pr_details = pr_details_response.json()
-            additions = pr_details.get('additions', 0)
-            deletions = pr_details.get('deletions', 0)
-            pr_state = pr_details.get('state', pr_state)
-
-        total_lines = additions + deletions
+        reviews_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews"
+        comments_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/comments"
 
         # Only cache closed PRs since open PRs can still change
         should_cache = (pr_state == 'closed')
 
+        # Fetch all data in parallel
+        additions = pr.get('additions', 0)
+        deletions = pr.get('deletions', 0)
+        reviews = []
+        review_comments = []
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            # Submit all requests in parallel
+            future_details = executor.submit(self.session.get, pr_details_url)
+            future_reviews = executor.submit(self.get_paginated, reviews_url, use_cache=should_cache)
+            future_comments = executor.submit(self.get_paginated, comments_url, use_cache=should_cache)
+
+            # Get PR details
+            try:
+                pr_details_response = future_details.result()
+                if pr_details_response.status_code == 200:
+                    pr_details = pr_details_response.json()
+                    additions = pr_details.get('additions', 0)
+                    deletions = pr_details.get('deletions', 0)
+                    pr_state = pr_details.get('state', pr_state)
+                else:
+                    logging.warning(f"Failed to fetch PR details for #{pr_number}, using list data")
+            except Exception as e:
+                logging.warning(f"Error fetching PR details for #{pr_number}: {e}")
+
+            # Get reviews and comments
+            try:
+                reviews = future_reviews.result()
+            except Exception as e:
+                logging.warning(f"Error fetching reviews for #{pr_number}: {e}")
+
+            try:
+                review_comments = future_comments.result()
+            except Exception as e:
+                logging.warning(f"Error fetching comments for #{pr_number}: {e}")
+
+        total_lines = additions + deletions
+
         logging.debug(f"Analyzing PR #{pr_number}: {pr_title} (by {pr_author}, +{additions}/-{deletions} lines, state: {pr_state})")
-
-        # Fetch reviews for this PR
-        reviews_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews"
-        reviews = self.get_paginated(reviews_url, use_cache=should_cache)
-
-        # Fetch review comments for this PR
-        comments_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/comments"
-        review_comments = self.get_paginated(comments_url, use_cache=should_cache)
 
         # Track unique reviewers and their activity
         reviewer_activity = defaultdict(lambda: {
@@ -287,31 +394,33 @@ class GitHubReviewAnalyzer:
             'deletions': deletions
         }
 
-        if pr_author == self.username:
-            # Others reviewed my PR
-            for reviewer, activity in reviewer_activity.items():
-                stats = self.reviewed_by_others[reviewer]
-                stats.prs_reviewed += 1
-                stats.lines_reviewed += total_lines
-                stats.additions_reviewed += additions
-                stats.deletions_reviewed += deletions
-                stats.review_events += activity['review_events']
-                stats.comments += activity['comments']
-                stats.prs.append(pr_info)
-        else:
-            # I reviewed someone else's PR - check if I actually reviewed it
-            my_reviews = [r for r in reviews if r['user']['login'] == self.username]
-            my_comments = [c for c in review_comments if c['user']['login'] == self.username]
+        # Update stats with thread safety
+        with self._stats_lock:
+            if pr_author == self.username:
+                # Others reviewed my PR
+                for reviewer, activity in reviewer_activity.items():
+                    stats = self.reviewed_by_others[reviewer]
+                    stats.prs_reviewed += 1
+                    stats.lines_reviewed += total_lines
+                    stats.additions_reviewed += additions
+                    stats.deletions_reviewed += deletions
+                    stats.review_events += activity['review_events']
+                    stats.comments += activity['comments']
+                    stats.prs.append(pr_info)
+            else:
+                # I reviewed someone else's PR - check if I actually reviewed it
+                my_reviews = [r for r in reviews if r['user']['login'] == self.username]
+                my_comments = [c for c in review_comments if c['user']['login'] == self.username]
 
-            if my_reviews or my_comments:
-                stats = self.reviewed_by_me[pr_author]
-                stats.prs_reviewed += 1
-                stats.lines_reviewed += total_lines
-                stats.additions_reviewed += additions
-                stats.deletions_reviewed += deletions
-                stats.review_events += len(my_reviews)
-                stats.comments += len(my_comments)
-                stats.prs.append(pr_info)
+                if my_reviews or my_comments:
+                    stats = self.reviewed_by_me[pr_author]
+                    stats.prs_reviewed += 1
+                    stats.lines_reviewed += total_lines
+                    stats.additions_reviewed += additions
+                    stats.deletions_reviewed += deletions
+                    stats.review_events += len(my_reviews)
+                    stats.comments += len(my_comments)
+                    stats.prs.append(pr_info)
 
     def print_summary(self):
         """Print a comprehensive summary of review statistics."""
