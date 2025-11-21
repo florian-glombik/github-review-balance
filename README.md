@@ -35,6 +35,38 @@ A Python script to analyze GitHub pull request review activity between you and o
 
 3. Replace the placeholders in the `.env` file
 
+## Testing
+### Running Tests
+
+1. Install development dependencies:
+   ```bash
+   pip install -r requirements-dev.txt
+   ```
+
+2. Run all tests:
+   ```bash
+   pytest test_github_review_analyzer.py -v
+   ```
+
+3. Run tests with coverage report:
+   ```bash
+   pytest test_github_review_analyzer.py --cov=github_review_analyzer --cov-report=term-missing
+   ```
+
+### Continuous Integration
+
+Tests are automatically run on every push to the `main` branch or any feature branch via GitHub Actions. The workflow tests against multiple Python versions (3.9, 3.10, 3.11, 3.12) to ensure compatibility.
+
+### Test Coverage
+
+The test suite includes 25+ tests covering:
+- ReviewStats dataclass initialization and behavior
+- GitHubReviewAnalyzer class functionality
+- Cache operations (save, load, key generation)
+- Environment variable handling
+- Edge cases (corrupted cache, missing files, etc.)
+- User filtering and label filtering
+
 ## Usage
 
 ### Interactive Mode
