@@ -40,13 +40,14 @@ class ReviewStats:
 class GitHubReviewAnalyzer:
     """Analyzes GitHub PR reviews for a given user across repositories."""
 
-    def __init__(self, username: str, token: str = None, cache_file: str = '.github_review_cache.json', use_cache: bool = True):
+    def __init__(self, username: str, token: str = None, cache_file: str = '.github_review_cache.json', use_cache: bool = True, excluded_users: Set[str] = None):
         self.username = username
         self.token = token or os.environ.get('GITHUB_TOKEN')
         self.session = requests.Session()
         self.cache_file = cache_file
         self.use_cache = use_cache
         self.cache = self._load_cache()
+        self.excluded_users = excluded_users or set()
 
         if self.token:
             self.session.headers.update({
@@ -214,14 +215,32 @@ class GitHubReviewAnalyzer:
         pr_title = pr['title']
         pr_url = pr['html_url']
         pr_state = pr.get('state', 'open')
-        additions = pr.get('additions', 0)
-        deletions = pr.get('deletions', 0)
+
+        # Skip excluded users
+        if pr_author in self.excluded_users:
+            logging.debug(f"Skipping PR #{pr_number} by excluded user {pr_author}")
+            return
+
+        # Fetch full PR details to get accurate additions/deletions
+        pr_details_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
+        pr_details_response = self.session.get(pr_details_url)
+
+        if pr_details_response.status_code != 200:
+            logging.warning(f"Failed to fetch PR details for #{pr_number}, using list data")
+            additions = pr.get('additions', 0)
+            deletions = pr.get('deletions', 0)
+        else:
+            pr_details = pr_details_response.json()
+            additions = pr_details.get('additions', 0)
+            deletions = pr_details.get('deletions', 0)
+            pr_state = pr_details.get('state', pr_state)
+
         total_lines = additions + deletions
 
         # Only cache closed PRs since open PRs can still change
         should_cache = (pr_state == 'closed')
 
-        logging.debug(f"Analyzing PR #{pr_number}: {pr_title} (by {pr_author}, {total_lines} lines, state: {pr_state})")
+        logging.debug(f"Analyzing PR #{pr_number}: {pr_title} (by {pr_author}, +{additions}/-{deletions} lines, state: {pr_state})")
 
         # Fetch reviews for this PR
         reviews_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews"
@@ -243,8 +262,8 @@ class GitHubReviewAnalyzer:
             reviewer = review['user']['login']
             review_id = review['id']
 
-            if reviewer == self.username or reviewer == pr_author:
-                continue  # Skip self-reviews
+            if reviewer == self.username or reviewer == pr_author or reviewer in self.excluded_users:
+                continue  # Skip self-reviews and excluded users
 
             reviewer_activity[reviewer]['reviews'].add(review_id)
             reviewer_activity[reviewer]['review_events'] += 1
@@ -253,7 +272,7 @@ class GitHubReviewAnalyzer:
         for comment in review_comments:
             commenter = comment['user']['login']
 
-            if commenter == self.username or commenter == pr_author:
+            if commenter == self.username or commenter == pr_author or commenter in self.excluded_users:
                 continue
 
             reviewer_activity[commenter]['comments'] += 1
@@ -450,8 +469,21 @@ def main():
     # Check if caching should be disabled
     use_cache = os.environ.get('USE_CACHE', 'true').lower() not in ('false', '0', 'no')
 
+    # Get excluded users from environment or prompt
+    excluded_users = set()
+    excluded_env = os.environ.get('EXCLUDED_USERS')
+    if excluded_env:
+        # Parse comma-separated list from environment
+        excluded_users = set(u.strip() for u in excluded_env.split(',') if u.strip())
+        logging.info(f"Excluding users: {', '.join(excluded_users)}")
+    else:
+        exclude_input = input("\nEnter users to exclude (comma-separated, or press Enter to skip): ").strip()
+        if exclude_input:
+            excluded_users = set(u.strip() for u in exclude_input.split(',') if u.strip())
+            logging.info(f"Excluding users: {', '.join(excluded_users)}")
+
     # Create analyzer
-    analyzer = GitHubReviewAnalyzer(username, token, use_cache=use_cache)
+    analyzer = GitHubReviewAnalyzer(username, token, use_cache=use_cache, excluded_users=excluded_users)
 
     # Analyze each repository
     logging.info(f"Starting analysis of {len(repos)} repository/repositories")

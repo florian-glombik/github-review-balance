@@ -50,6 +50,7 @@ You'll be asked to provide:
 - GitHub token (optional, can press Enter to skip)
 - List of repositories to analyze (format: `owner/repo`)
 - Time range in months (default: 3)
+- Users to exclude (optional, comma-separated)
 
 ### Example Session
 
@@ -104,6 +105,29 @@ To clear the cache, simply delete the cache file:
 
 ```bash
 rm .github_review_cache.json
+```
+
+## Configuration Options
+
+### Environment Variables
+
+You can configure the script using environment variables in your `.env` file:
+
+- `GITHUB_USERNAME`: Your GitHub username
+- `GITHUB_TOKEN`: Your GitHub personal access token
+- `GITHUB_REPOS`: Comma-separated list of repositories (e.g., `owner/repo1,owner/repo2`)
+- `ANALYSIS_MONTHS`: Number of months to analyze (default: 3)
+- `EXCLUDED_USERS`: Comma-separated list of users to exclude from analysis
+- `USE_CACHE`: Enable/disable caching (default: true)
+
+Example `.env` file:
+```bash
+GITHUB_USERNAME=your-username
+GITHUB_TOKEN=ghp_your_token_here
+GITHUB_REPOS=ls1intum/Artemis
+ANALYSIS_MONTHS=6
+EXCLUDED_USERS=coderabbitai[bot],dependabot,bot-user
+USE_CACHE=true
 ```
 
 ## Output
@@ -188,9 +212,11 @@ Using a token is highly recommended for analyzing repositories with many PRs.
 ## Notes
 
 - The script tracks additions (+lines) and deletions (-lines) separately and also shows the total
+- Fetches full PR details to ensure accurate line counts
 - Both open and closed PRs are included in the analysis
 - Only closed PRs are cached; open PRs always fetch fresh data to reflect ongoing changes
 - Cached data never expires since closed PR data is immutable
+- You can exclude specific users (e.g., bots like dependabot) from the analysis
 - Review events include approvals, change requests, and dismissals
 - Comments include both review comments and general PR comments
 - PRs are filtered by creation date within the specified time range
