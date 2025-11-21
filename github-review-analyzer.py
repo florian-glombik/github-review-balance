@@ -232,45 +232,26 @@ class GitHubReviewAnalyzer:
         # For closed PRs, we'll filter by merged_at date
         for state in ['open', 'closed']:
             print(f"  Fetching {state} PRs...", end='', flush=True)
-            page_count = 0
+            page_count = [0]  # Use list to allow modification in nested function
 
-            def should_continue(page_data: List[Dict]) -> bool:
-                """Check if we should continue fetching more pages."""
-                nonlocal page_count
-                page_count += 1
-
-                # For open PRs, fetch all (they're currently being reviewed)
-                if state == 'open':
-                    return True
-
-                # For closed PRs, check if any PR in this page was merged within our date range
-                has_recent = False
-                for pr in page_data:
-                    # Check merged_at date if available
-                    if pr.get('merged_at'):
-                        merged_date = datetime.strptime(pr['merged_at'], '%Y-%m-%dT%H:%M:%SZ')
-                        if merged_date >= since_date:
-                            has_recent = True
-                            break
-
-                # If no recent merged PRs found in this page, stop pagination
-                if not has_recent:
-                    logging.info(f"Stopping pagination for {state} PRs at page {page_count} - all PRs older than cutoff date")
-                    return False
-
+            def count_pages(page_data: List[Dict]) -> bool:
+                """Count pages as we fetch them."""
+                page_count[0] += 1
                 return True
 
-            # Sort by updated for open PRs, by merged_at isn't available directly, so we use updated
-            # The GitHub API doesn't support sorting by merged_at, so we fetch and filter
+            # Sort by updated - we fetch all PRs and filter by merged_at date later
+            # Note: We don't use early termination because PRs are sorted by 'updated' time,
+            # not 'merged_at' time. Early termination could cause us to miss PRs that were
+            # merged recently but haven't been updated recently.
             prs = self.get_paginated(url, {
                 'state': state,
                 'sort': 'updated',
                 'direction': 'desc'
-            }, should_continue=should_continue if state == 'closed' else None)
+            }, should_continue=count_pages)
 
             all_prs.extend(prs)
             total_fetched += len(prs)
-            print(f" fetched {len(prs)} PRs ({page_count} pages)")
+            print(f" fetched {len(prs)} PRs ({page_count[0]} pages)")
 
         # Filter PRs by merge date (or include open PRs), draft status, and labels
         recent_prs = []
