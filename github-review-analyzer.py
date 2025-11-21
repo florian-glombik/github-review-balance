@@ -44,7 +44,7 @@ class ReviewStats:
 class GitHubReviewAnalyzer:
     """Analyzes GitHub PR reviews for a given user across repositories."""
 
-    def __init__(self, username: str, token: str = None, cache_file: str = '.github_review_cache.json', use_cache: bool = True, excluded_users: Set[str] = None):
+    def __init__(self, username: str, token: str = None, cache_file: str = '.github_review_cache.json', use_cache: bool = True, excluded_users: Set[str] = None, required_pr_label: str = None):
         self.username = username
         self.token = token or os.environ.get('GITHUB_TOKEN')
         self.session = requests.Session()
@@ -52,6 +52,7 @@ class GitHubReviewAnalyzer:
         self.use_cache = use_cache
         self.cache = self._load_cache()
         self.excluded_users = excluded_users or set()
+        self.required_pr_label = required_pr_label
 
         # Configure session with larger connection pool to handle concurrent requests
         # Pool size = 10 (outer workers) * 3 (inner workers per PR) = 30 + buffer
@@ -80,6 +81,9 @@ class GitHubReviewAnalyzer:
         # Statistics: user -> ReviewStats
         self.reviewed_by_me: Dict[str, ReviewStats] = defaultdict(ReviewStats)
         self.reviewed_by_others: Dict[str, ReviewStats] = defaultdict(ReviewStats)
+
+        # Store repositories for later use
+        self.repositories: List[str] = []
 
         # Thread safety for parallel processing
         self._stats_lock = Lock()
@@ -209,6 +213,10 @@ class GitHubReviewAnalyzer:
         """Analyze PRs in a repository for the last N months based on merge date."""
         logging.info(f"Analyzing repository: {repo}")
 
+        # Store repository for later use
+        if repo not in self.repositories:
+            self.repositories.append(repo)
+
         since_date = datetime.now() - timedelta(days=months * 30)
         logging.info(f"Looking for PRs merged since: {since_date.strftime('%Y-%m-%d')}")
 
@@ -264,19 +272,46 @@ class GitHubReviewAnalyzer:
             total_fetched += len(prs)
             print(f" fetched {len(prs)} PRs ({page_count} pages)")
 
-        # Filter PRs by merge date (or include open PRs)
+        # Filter PRs by merge date (or include open PRs), draft status, and labels
         recent_prs = []
+        filtered_draft = 0
+        filtered_label = 0
+
         for pr in all_prs:
+            # First check if PR is in our date range
             if pr['state'] == 'open':
                 # Include all open PRs as they're currently under review
-                recent_prs.append(pr)
+                pass  # Continue to other checks
             elif pr.get('merged_at'):
                 # For merged PRs, check merge date
                 merged_date = datetime.strptime(pr['merged_at'], '%Y-%m-%dT%H:%M:%SZ')
-                if merged_date >= since_date:
-                    recent_prs.append(pr)
+                if merged_date < since_date:
+                    continue  # Skip PRs outside date range
+            else:
+                continue  # Skip PRs that are closed but not merged
 
-        print(f"Found {len(recent_prs)} PRs in the last {months} months (filtered from {total_fetched} fetched)")
+            # Skip draft PRs
+            if pr.get('draft', False):
+                logging.debug(f"Skipping draft PR #{pr['number']}")
+                filtered_draft += 1
+                continue
+
+            # Check for required label if specified
+            if self.required_pr_label:
+                pr_labels = [label['name'] for label in pr.get('labels', [])]
+                if self.required_pr_label not in pr_labels:
+                    logging.debug(f"Skipping PR #{pr['number']} - missing required label '{self.required_pr_label}'")
+                    filtered_label += 1
+                    continue
+
+            recent_prs.append(pr)
+
+        filter_msg = f"Found {len(recent_prs)} PRs in the last {months} months (filtered from {total_fetched} fetched)"
+        if filtered_draft > 0:
+            filter_msg += f", {filtered_draft} draft PRs filtered"
+        if filtered_label > 0:
+            filter_msg += f", {filtered_label} PRs without required label filtered"
+        print(filter_msg)
 
         if not recent_prs:
             logging.info(f"No PRs found for repository: {repo}")
@@ -438,6 +473,97 @@ class GitHubReviewAnalyzer:
                     stats.comments += len(my_comments)
                     stats.prs.append(pr_info)
 
+    def get_open_prs_needing_review(self) -> Dict[str, List[Dict]]:
+        """Fetch open PRs from analyzed repositories that need review from the user."""
+        prs_by_author = defaultdict(list)
+
+        print("\nFetching currently open PRs...")
+        for repo in self.repositories:
+            url = f"https://api.github.com/repos/{repo}/pulls"
+
+            try:
+                # Fetch open PRs (don't use cache for open PRs as they change frequently)
+                open_prs = self.get_paginated(url, {
+                    'state': 'open',
+                    'sort': 'updated',
+                    'direction': 'desc'
+                }, use_cache=False)
+
+                for pr in open_prs:
+                    pr_author = pr['user']['login']
+
+                    # Skip my own PRs
+                    if pr_author == self.username:
+                        continue
+
+                    # Skip excluded users
+                    if pr_author in self.excluded_users:
+                        continue
+
+                    # Skip draft PRs
+                    if pr.get('draft', False):
+                        continue
+
+                    # Check for required label if specified
+                    if self.required_pr_label:
+                        pr_labels = [label['name'] for label in pr.get('labels', [])]
+                        if self.required_pr_label not in pr_labels:
+                            continue
+
+                    # Check if I've already reviewed this PR
+                    pr_number = pr['number']
+                    pr_details_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
+                    reviews_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews"
+                    comments_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/comments"
+
+                    try:
+                        # Fetch PR details, reviews, and comments in parallel
+                        with ThreadPoolExecutor(max_workers=3) as executor:
+                            future_details = executor.submit(self.session.get, pr_details_url)
+                            future_reviews = executor.submit(self.get_paginated, reviews_url, use_cache=False)
+                            future_comments = executor.submit(self.get_paginated, comments_url, use_cache=False)
+
+                            # Get PR details to fetch accurate line counts
+                            additions = 0
+                            deletions = 0
+                            try:
+                                pr_details_response = future_details.result()
+                                if pr_details_response.status_code == 200:
+                                    pr_details = pr_details_response.json()
+                                    additions = pr_details.get('additions', 0)
+                                    deletions = pr_details.get('deletions', 0)
+                                else:
+                                    logging.warning(f"Failed to fetch PR details for #{pr_number}")
+                            except Exception as e:
+                                logging.warning(f"Error fetching PR details for #{pr_number}: {e}")
+
+                            # Get reviews and comments
+                            reviews = future_reviews.result()
+                            review_comments = future_comments.result()
+
+                            my_reviews = [r for r in reviews if r['user']['login'] == self.username]
+                            my_comments = [c for c in review_comments if c['user']['login'] == self.username]
+
+                            # If I haven't reviewed this PR yet, add it to the list
+                            if not my_reviews and not my_comments:
+                                prs_by_author[pr_author].append({
+                                    'number': pr_number,
+                                    'title': pr['title'],
+                                    'url': pr['html_url'],
+                                    'repo': repo,
+                                    'additions': additions,
+                                    'deletions': deletions,
+                                    'created_at': pr['created_at'],
+                                    'updated_at': pr['updated_at']
+                                })
+                    except Exception as e:
+                        logging.warning(f"Error checking reviews for PR #{pr_number}: {e}")
+
+            except Exception as e:
+                logging.error(f"Error fetching open PRs from {repo}: {e}")
+
+        return prs_by_author
+
     def print_summary(self):
         """Print a comprehensive summary of review statistics."""
         print("\n" + "="*80)
@@ -450,6 +576,111 @@ class GitHubReviewAnalyzer:
         if not all_users:
             print("\nNo review activity found.")
             return
+
+        # ACTIONABLE SUMMARY: Who should review next PRs
+        print("\n" + "="*80)
+        print("REVIEW BALANCE & NEXT ACTIONS")
+        print("="*80)
+
+        # Calculate review balance for each user
+        review_balance = []
+        for user in all_users:
+            my_reviews = self.reviewed_by_me[user]
+            their_reviews = self.reviewed_by_others[user]
+            balance = their_reviews.lines_reviewed - my_reviews.lines_reviewed
+            total_prs = my_reviews.prs_reviewed + their_reviews.prs_reviewed
+
+            review_balance.append({
+                'user': user,
+                'balance': balance,
+                'they_reviewed': their_reviews.lines_reviewed,
+                'they_additions': their_reviews.additions_reviewed,
+                'they_deletions': their_reviews.deletions_reviewed,
+                'i_reviewed': my_reviews.lines_reviewed,
+                'i_additions': my_reviews.additions_reviewed,
+                'i_deletions': my_reviews.deletions_reviewed,
+                'total_prs': total_prs
+            })
+
+        # Sort by total PRs reviewed (descending)
+        review_balance.sort(key=lambda x: x['total_prs'], reverse=True)
+
+        # Display table
+        print("\nReview Balance (lines reviewed):")
+        print(f"{'User':<20} {'Total PRs':<10} {'They reviewed':<25} {'I reviewed':<25} {'Balance':<15} {'Action'}")
+        print(f"{'-'*115}")
+
+        for item in review_balance:
+            user = item['user']
+            balance = item['balance']
+            total_prs = item['total_prs']
+            they_reviewed = item['they_reviewed']
+            they_additions = item['they_additions']
+            they_deletions = item['they_deletions']
+            i_reviewed = item['i_reviewed']
+            i_additions = item['i_additions']
+            i_deletions = item['i_deletions']
+
+            # Format: total (+add / -del)
+            they_str = f"{they_reviewed:,} (+{they_additions:,}/-{they_deletions:,})"
+            i_str = f"{i_reviewed:,} (+{i_additions:,}/-{i_deletions:,})"
+
+            # CORRECTED LOGIC: If they reviewed MORE (positive balance), I OWE them reviews
+            if balance > 0:
+                action = "→ I should review their PRs"
+                balance_str = f"+{balance:,}"
+            elif balance < 0:
+                action = "← They should review my PRs"
+                balance_str = f"{balance:,}"
+            else:
+                action = "✓ Balanced"
+                balance_str = "0"
+
+            print(f"{user:<20} {total_prs:<10} {they_str:<25} {i_str:<25} {balance_str:<15} {action}")
+
+        # Get open PRs that need review
+        open_prs_by_author = self.get_open_prs_needing_review()
+
+        if open_prs_by_author:
+            print("\n" + "="*80)
+            print("OPEN PRs THAT NEED YOUR REVIEW")
+            print("="*80)
+
+            # Sort authors by review balance (prioritize those I owe reviews to)
+            # Higher positive balance = I owe them more reviews = higher priority
+            authors_with_prs = [(user, open_prs_by_author[user]) for user in open_prs_by_author]
+            authors_with_prs.sort(key=lambda x: next(
+                (item['balance'] for item in review_balance if item['user'] == x[0]),
+                0
+            ), reverse=True)
+
+            total_prs_to_review = sum(len(prs) for prs in open_prs_by_author.values())
+            print(f"\nYou have {total_prs_to_review} open PR(s) to review:\n")
+
+            for author, prs in authors_with_prs:
+                balance_info = next((item for item in review_balance if item['user'] == author), None)
+                if balance_info and balance_info['balance'] > 0:
+                    priority = f"(Priority: You owe them {balance_info['balance']:,} lines)"
+                else:
+                    priority = ""
+
+                print(f"From {author} {priority}:")
+                for pr in prs:
+                    total_lines = pr['additions'] + pr['deletions']
+                    repo_short = pr['repo'].split('/')[-1]
+                    print(f"  • [{repo_short}] #{pr['number']}: {pr['title']}")
+                    print(f"    {pr['url']} (+{pr['additions']:,} / -{pr['deletions']:,} lines)")
+                print()
+        else:
+            print("\n" + "="*80)
+            print("OPEN PRs THAT NEED YOUR REVIEW")
+            print("="*80)
+            print("\nNo open PRs found that need your review.")
+
+        # Rest of the detailed summary continues below
+        print("\n" + "="*80)
+        print("DETAILED REVIEW HISTORY")
+        print("="*80)
 
         # Sort users by total interaction
         sorted_users = sorted(
@@ -607,8 +838,14 @@ def main():
             excluded_users = set(u.strip() for u in exclude_input.split(',') if u.strip())
             logging.info(f"Excluding users: {', '.join(excluded_users)}")
 
+    # Get required PR label from environment
+    required_pr_label = os.environ.get('REQUIRED_PR_LABEL')
+    if required_pr_label:
+        required_pr_label = required_pr_label.strip()
+        logging.info(f"Filtering PRs by label: '{required_pr_label}'")
+
     # Create analyzer
-    analyzer = GitHubReviewAnalyzer(username, token, use_cache=use_cache, excluded_users=excluded_users)
+    analyzer = GitHubReviewAnalyzer(username, token, use_cache=use_cache, excluded_users=excluded_users, required_pr_label=required_pr_label)
 
     # Analyze each repository
     logging.info(f"Starting analysis of {len(repos)} repository/repositories")
