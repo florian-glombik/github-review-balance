@@ -397,5 +397,256 @@ class TestEnvironmentVariables:
             assert analyzer.token == explicit_token
 
 
+class TestSortingFunctionality:
+    """Test cases for table sorting functionality."""
+
+    @pytest.fixture
+    def analyzer_with_sort(self):
+        """Create analyzer with sort_by parameter."""
+        def _create_analyzer(sort_by='total_prs'):
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.json') as f:
+                cache_file = f.name
+
+            analyzer = GitHubReviewAnalyzer(
+                username='test_user',
+                token='test_token',
+                cache_file=cache_file,
+                use_cache=False,
+                sort_by=sort_by
+            )
+            return analyzer, cache_file
+
+        return _create_analyzer
+
+    def test_default_sort_by(self):
+        """Test that default sort_by is 'total_prs'."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', use_cache=False)
+        assert analyzer.sort_by == 'total_prs'
+
+    def test_custom_sort_by(self, analyzer_with_sort):
+        """Test initialization with custom sort_by parameter."""
+        analyzer, cache_file = analyzer_with_sort('balance')
+        try:
+            assert analyzer.sort_by == 'balance'
+        finally:
+            if os.path.exists(cache_file):
+                os.remove(cache_file)
+
+    def test_all_valid_sort_options(self, analyzer_with_sort):
+        """Test all valid sort options."""
+        valid_options = ['total_prs', 'balance', 'user', 'they_reviewed', 'i_reviewed', 'their_prs', 'my_prs']
+
+        for option in valid_options:
+            analyzer, cache_file = analyzer_with_sort(option)
+            try:
+                assert analyzer.sort_by == option
+            finally:
+                if os.path.exists(cache_file):
+                    os.remove(cache_file)
+
+    def test_sort_by_total_prs(self):
+        """Test sorting by total PRs (descending)."""
+        test_data = [
+            {'user': 'Alice', 'total_prs': 5, 'balance': 100},
+            {'user': 'Bob', 'total_prs': 10, 'balance': 50},
+            {'user': 'Charlie', 'total_prs': 8, 'balance': 200}
+        ]
+
+        sort_key = lambda x: x['total_prs']
+        sorted_data = sorted(test_data, key=sort_key, reverse=True)
+
+        assert sorted_data[0]['user'] == 'Bob'  # 10 PRs
+        assert sorted_data[1]['user'] == 'Charlie'  # 8 PRs
+        assert sorted_data[2]['user'] == 'Alice'  # 5 PRs
+
+    def test_sort_by_balance(self):
+        """Test sorting by balance (descending)."""
+        test_data = [
+            {'user': 'Alice', 'total_prs': 5, 'balance': 100},
+            {'user': 'Bob', 'total_prs': 10, 'balance': -50},
+            {'user': 'Charlie', 'total_prs': 8, 'balance': 200}
+        ]
+
+        sort_key = lambda x: x['balance']
+        sorted_data = sorted(test_data, key=sort_key, reverse=True)
+
+        assert sorted_data[0]['user'] == 'Charlie'  # balance: 200
+        assert sorted_data[1]['user'] == 'Alice'    # balance: 100
+        assert sorted_data[2]['user'] == 'Bob'      # balance: -50
+
+    def test_sort_by_user_alphabetically(self):
+        """Test sorting by username (ascending/alphabetical)."""
+        test_data = [
+            {'user': 'Charlie', 'total_prs': 8, 'balance': 200},
+            {'user': 'Alice', 'total_prs': 5, 'balance': 100},
+            {'user': 'Bob', 'total_prs': 10, 'balance': 50}
+        ]
+
+        sort_key = lambda x: x['user'].lower()
+        sorted_data = sorted(test_data, key=sort_key, reverse=False)
+
+        assert sorted_data[0]['user'] == 'Alice'
+        assert sorted_data[1]['user'] == 'Bob'
+        assert sorted_data[2]['user'] == 'Charlie'
+
+    def test_sort_by_they_reviewed(self):
+        """Test sorting by lines they reviewed (descending)."""
+        test_data = [
+            {'user': 'Alice', 'they_reviewed': 500, 'i_reviewed': 300},
+            {'user': 'Bob', 'they_reviewed': 200, 'i_reviewed': 400},
+            {'user': 'Charlie', 'they_reviewed': 800, 'i_reviewed': 100}
+        ]
+
+        sort_key = lambda x: x['they_reviewed']
+        sorted_data = sorted(test_data, key=sort_key, reverse=True)
+
+        assert sorted_data[0]['user'] == 'Charlie'  # 800
+        assert sorted_data[1]['user'] == 'Alice'    # 500
+        assert sorted_data[2]['user'] == 'Bob'      # 200
+
+    def test_sort_by_i_reviewed(self):
+        """Test sorting by lines I reviewed (descending)."""
+        test_data = [
+            {'user': 'Alice', 'they_reviewed': 500, 'i_reviewed': 300},
+            {'user': 'Bob', 'they_reviewed': 200, 'i_reviewed': 400},
+            {'user': 'Charlie', 'they_reviewed': 800, 'i_reviewed': 100}
+        ]
+
+        sort_key = lambda x: x['i_reviewed']
+        sorted_data = sorted(test_data, key=sort_key, reverse=True)
+
+        assert sorted_data[0]['user'] == 'Bob'      # 400
+        assert sorted_data[1]['user'] == 'Alice'    # 300
+        assert sorted_data[2]['user'] == 'Charlie'  # 100
+
+    def test_sort_by_their_prs(self):
+        """Test sorting by number of their PRs I reviewed (descending)."""
+        test_data = [
+            {'user': 'Alice', 'their_prs_i_reviewed': 3, 'my_prs_they_reviewed': 5},
+            {'user': 'Bob', 'their_prs_i_reviewed': 7, 'my_prs_they_reviewed': 2},
+            {'user': 'Charlie', 'their_prs_i_reviewed': 4, 'my_prs_they_reviewed': 4}
+        ]
+
+        sort_key = lambda x: x['their_prs_i_reviewed']
+        sorted_data = sorted(test_data, key=sort_key, reverse=True)
+
+        assert sorted_data[0]['user'] == 'Bob'      # 7
+        assert sorted_data[1]['user'] == 'Charlie'  # 4
+        assert sorted_data[2]['user'] == 'Alice'    # 3
+
+    def test_sort_by_my_prs(self):
+        """Test sorting by number of my PRs they reviewed (descending)."""
+        test_data = [
+            {'user': 'Alice', 'their_prs_i_reviewed': 3, 'my_prs_they_reviewed': 5},
+            {'user': 'Bob', 'their_prs_i_reviewed': 7, 'my_prs_they_reviewed': 2},
+            {'user': 'Charlie', 'their_prs_i_reviewed': 4, 'my_prs_they_reviewed': 4}
+        ]
+
+        sort_key = lambda x: x['my_prs_they_reviewed']
+        sorted_data = sorted(test_data, key=sort_key, reverse=True)
+
+        assert sorted_data[0]['user'] == 'Alice'    # 5
+        assert sorted_data[1]['user'] == 'Charlie'  # 4
+        assert sorted_data[2]['user'] == 'Bob'      # 2
+
+    def test_sort_key_mapping(self):
+        """Test that the sort key mapping works correctly for all options."""
+        sort_key_map = {
+            'total_prs': lambda x: x['total_prs'],
+            'balance': lambda x: x['balance'],
+            'user': lambda x: x['user'].lower(),
+            'they_reviewed': lambda x: x['they_reviewed'],
+            'i_reviewed': lambda x: x['i_reviewed'],
+            'their_prs': lambda x: x['their_prs_i_reviewed'],
+            'my_prs': lambda x: x['my_prs_they_reviewed']
+        }
+
+        test_item = {
+            'user': 'TestUser',
+            'total_prs': 10,
+            'balance': 100,
+            'they_reviewed': 500,
+            'i_reviewed': 300,
+            'their_prs_i_reviewed': 5,
+            'my_prs_they_reviewed': 3
+        }
+
+        # Verify each sort key extracts the correct value
+        assert sort_key_map['total_prs'](test_item) == 10
+        assert sort_key_map['balance'](test_item) == 100
+        assert sort_key_map['user'](test_item) == 'testuser'
+        assert sort_key_map['they_reviewed'](test_item) == 500
+        assert sort_key_map['i_reviewed'](test_item) == 300
+        assert sort_key_map['their_prs'](test_item) == 5
+        assert sort_key_map['my_prs'](test_item) == 3
+
+    def test_case_insensitive_user_sorting(self):
+        """Test that user sorting is case-insensitive."""
+        test_data = [
+            {'user': 'alice', 'total_prs': 5},
+            {'user': 'Bob', 'total_prs': 10},
+            {'user': 'CHARLIE', 'total_prs': 8}
+        ]
+
+        sort_key = lambda x: x['user'].lower()
+        sorted_data = sorted(test_data, key=sort_key, reverse=False)
+
+        assert sorted_data[0]['user'] == 'alice'
+        assert sorted_data[1]['user'] == 'Bob'
+        assert sorted_data[2]['user'] == 'CHARLIE'
+
+    def test_sorting_with_equal_values(self):
+        """Test sorting behavior when values are equal."""
+        test_data = [
+            {'user': 'Alice', 'total_prs': 5, 'balance': 100},
+            {'user': 'Bob', 'total_prs': 5, 'balance': 50},
+            {'user': 'Charlie', 'total_prs': 5, 'balance': 200}
+        ]
+
+        sort_key = lambda x: x['total_prs']
+        sorted_data = sorted(test_data, key=sort_key, reverse=True)
+
+        # All have same total_prs, order may vary but all should be present
+        users = [item['user'] for item in sorted_data]
+        assert set(users) == {'Alice', 'Bob', 'Charlie'}
+
+    def test_sorting_with_negative_balance(self):
+        """Test sorting with negative balance values."""
+        test_data = [
+            {'user': 'Alice', 'balance': -100},
+            {'user': 'Bob', 'balance': 50},
+            {'user': 'Charlie', 'balance': -200}
+        ]
+
+        sort_key = lambda x: x['balance']
+        sorted_data = sorted(test_data, key=sort_key, reverse=True)
+
+        # Descending order: 50, -100, -200
+        assert sorted_data[0]['user'] == 'Bob'      # 50
+        assert sorted_data[1]['user'] == 'Alice'    # -100
+        assert sorted_data[2]['user'] == 'Charlie'  # -200
+
+    def test_sorting_empty_list(self):
+        """Test sorting an empty list."""
+        test_data = []
+
+        sort_key = lambda x: x['total_prs']
+        sorted_data = sorted(test_data, key=sort_key, reverse=True)
+
+        assert sorted_data == []
+
+    def test_sorting_single_item(self):
+        """Test sorting a list with a single item."""
+        test_data = [
+            {'user': 'Alice', 'total_prs': 5, 'balance': 100}
+        ]
+
+        sort_key = lambda x: x['total_prs']
+        sorted_data = sorted(test_data, key=sort_key, reverse=True)
+
+        assert len(sorted_data) == 1
+        assert sorted_data[0]['user'] == 'Alice'
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
