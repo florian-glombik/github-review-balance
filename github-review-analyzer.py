@@ -605,6 +605,12 @@ class GitHubReviewAnalyzer:
         # Sort by total PRs reviewed (descending)
         review_balance.sort(key=lambda x: x['total_prs'], reverse=True)
 
+        # ANSI color codes
+        GREEN = '\033[92m'
+        YELLOW = '\033[93m'
+        RED = '\033[91m'
+        RESET = '\033[0m'
+
         # Display table
         print("\nReview Balance (lines reviewed):")
         print(f"{'User':<20} {'Total PRs':<10} {'They reviewed':<25} {'I reviewed':<25} {'Balance':<15} {'Action'}")
@@ -621,22 +627,32 @@ class GitHubReviewAnalyzer:
             i_additions = item['i_additions']
             i_deletions = item['i_deletions']
 
-            # Format: total (+add / -del)
-            they_str = f"{they_reviewed:,} (+{they_additions:,}/-{they_deletions:,})"
-            i_str = f"{i_reviewed:,} (+{i_additions:,}/-{i_deletions:,})"
+            # Format: +add / -del (without total)
+            they_str = f"+{they_additions:,}/-{they_deletions:,}"
+            i_str = f"+{i_additions:,}/-{i_deletions:,}"
 
-            # CORRECTED LOGIC: If they reviewed MORE (positive balance), I OWE them reviews
-            if balance > 0:
-                action = "→ I should review their PRs"
-                balance_str = f"+{balance:,}"
-            elif balance < 0:
-                action = "← They should review my PRs"
-                balance_str = f"{balance:,}"
-            else:
+            # Determine color based on balance
+            # Green: I owe them (positive balance)
+            # Yellow: They owe me a little (small negative balance)
+            # Red: They owe me a lot (large negative balance)
+            if balance == 0:
+                color = RESET
                 action = "✓ Balanced"
                 balance_str = "0"
+            elif balance > 0:
+                color = GREEN
+                action = "→ I should review their PRs"
+                balance_str = f"+{balance:,}"
+            elif balance > -1000:  # Between -1 and -999
+                color = YELLOW
+                action = "← They should review my PRs"
+                balance_str = f"{balance:,}"
+            else:  # <= -1000
+                color = RED
+                action = "← They should review my PRs"
+                balance_str = f"{balance:,}"
 
-            print(f"{user:<20} {total_prs:<10} {they_str:<25} {i_str:<25} {balance_str:<15} {action}")
+            print(f"{color}{user:<20} {total_prs:<10} {they_str:<25} {i_str:<25} {balance_str:<15} {action}{RESET}")
 
         # Get open PRs that need review
         open_prs_by_author = self.get_open_prs_needing_review()
