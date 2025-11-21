@@ -15,6 +15,8 @@ from typing import Dict, List, Set, Optional, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
@@ -50,6 +52,20 @@ class GitHubReviewAnalyzer:
         self.use_cache = use_cache
         self.cache = self._load_cache()
         self.excluded_users = excluded_users or set()
+
+        # Configure session with larger connection pool to handle concurrent requests
+        # Pool size = 10 (outer workers) * 3 (inner workers per PR) = 30 + buffer
+        adapter = HTTPAdapter(
+            pool_connections=50,  # Number of connection pools to cache
+            pool_maxsize=50,      # Maximum number of connections to save in the pool
+            max_retries=Retry(
+                total=3,
+                backoff_factor=0.3,
+                status_forcelist=[500, 502, 503, 504]
+            )
+        )
+        self.session.mount('https://', adapter)
+        self.session.mount('http://', adapter)
 
         if self.token:
             self.session.headers.update({
@@ -287,7 +303,7 @@ class GitHubReviewAnalyzer:
 
                     # Show progress every 10 PRs or at completion
                     if completed % 10 == 0 or completed == len(recent_prs):
-                        logger.info(f"  Progress: {completed}/{len(recent_prs)} PRs analyzed", flush=True)
+                        print(f"  Progress: {completed}/{len(recent_prs)} PRs analyzed", flush=True)
 
                 except Exception as e:
                     logging.error(f"Error analyzing PR #{pr['number']}: {e}", exc_info=True)
