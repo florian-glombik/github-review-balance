@@ -1,0 +1,168 @@
+# GitHub PR Review Analyzer
+
+A Python script to analyze GitHub pull request review activity between you and other contributors.
+
+## Features
+
+- 📊 Track PRs you reviewed vs. PRs others reviewed for you
+- 📈 Calculate lines of code reviewed in both directions
+- 🔢 Count review events (approvals, change requests)
+- 💬 Track number of comments written
+- 📝 List all reviewed PRs with clickable links
+- ⚖️ Calculate review balance (offset) between users
+
+## Prerequisites
+
+- Python 3.7+
+- `requests` library
+- GitHub Personal Access Token (recommended for higher rate limits)
+
+## Installation
+
+1. Install required dependencies:
+    ```bash
+     pip install -r requirements-review-analyzer.txt
+    ```
+   
+2. Create env file (optional but recommended)
+
+    ```bash
+    cp .env.example .env
+    ```
+
+3. Replace the placeholders in the `.env` file
+
+## Usage
+
+### Interactive Mode
+
+Simply run the script and follow the prompts (or provide parameters via `.env` file):
+
+```bash
+python3 github-review-analyzer.py
+```
+
+You'll be asked to provide:
+- Your GitHub username
+- GitHub token (optional, can press Enter to skip)
+- List of repositories to analyze (format: `owner/repo`)
+- Time range in months (default: 3)
+
+### Example Session
+
+```
+GitHub PR Review Analyzer
+================================================================================
+
+Enter your GitHub username: florian-glombik
+
+Enter GitHub token (or press Enter to skip):
+
+Enter repositories (format: owner/repo, one per line)
+Press Enter on an empty line when done
+Example: ls1intum/Artemis
+Repository: ls1intum/Artemis
+Repository:
+
+Analyze last N months [default: 3]: 3
+
+Analyzing repository: ls1intum/Artemis
+  Fetching pull requests...
+  Found 150 PRs in the last 3 months
+  Processing PR 10/150...
+  ...
+```
+
+## Output
+
+The script generates a detailed report showing:
+
+### Per-User Statistics
+For each user you've interacted with:
+- Number of PRs reviewed (both directions)
+- Lines of code reviewed (both directions)
+- Number of review events (approvals, change requests)
+- Number of comments written
+- Line review offset (balance between you and them)
+- Complete list of PRs with titles and direct links
+
+### Overall Statistics
+- Total PRs you reviewed
+- Total PRs others reviewed for you
+- Total lines reviewed (both directions)
+- Number of collaborators
+
+## Example Output
+
+```
+================================================================================
+REVIEW SUMMARY FOR florian-glombik
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+👤 user1
+────────────────────────────────────────────────────────────────────────────────
+
+Metric                         I reviewed           They reviewed
+──────────────────────────────────────────────────────────────────────────────
+PRs reviewed                   15                   10
+Lines reviewed                 5,420                3,200
+Review events                  18                   12
+Comments written               45                   28
+
+📊 Line Review Offset: +2,220 lines
+   (positive = you reviewed more of their code)
+
+📝 PRs I reviewed (15):
+   • #1234: Add new feature for exercise management
+     https://github.com/ls1intum/Artemis/pull/1234 (450 lines)
+   ...
+
+📝 PRs they reviewed (10):
+   • #1235: Fix bug in quiz assessment
+     https://github.com/ls1intum/Artemis/pull/1235 (320 lines)
+   ...
+
+================================================================================
+OVERALL STATISTICS
+================================================================================
+
+Total PRs I reviewed: 45
+Total PRs others reviewed of mine: 38
+Total lines I reviewed: 15,840
+Total lines others reviewed: 12,450
+Number of collaborators: 12
+```
+
+## Rate Limits
+
+- **Without token**: 60 requests/hour
+- **With token**: 5,000 requests/hour
+
+Using a token is highly recommended for analyzing repositories with many PRs.
+
+## Notes
+
+- The script counts additions + deletions as total lines
+- Review events include approvals, change requests, and dismissals
+- Comments include both review comments and general PR comments
+- PRs are filtered by creation date within the specified time range
+- The script handles pagination automatically for repositories with many PRs
+
+## Troubleshooting
+
+### Rate Limit Exceeded
+```
+Error: Rate limit exceeded
+```
+**Solution**: Use a GitHub Personal Access Token
+
+### Missing Reviews
+If you notice missing review data, ensure:
+- The time range is appropriate
+- You have access to the repository
+- The PRs were created within the specified time range
+
+## License
+
+This script is provided as-is for analyzing GitHub PR review activity.
