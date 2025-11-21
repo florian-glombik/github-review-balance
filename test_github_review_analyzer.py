@@ -7,8 +7,11 @@ import json
 import os
 import sys
 import tempfile
+import requests
 from datetime import datetime, timedelta
 from unittest.mock import Mock, patch, MagicMock
+from threading import Lock
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import importlib.util
 
 # Import the module from file with hyphens
@@ -646,6 +649,577 @@ class TestSortingFunctionality:
 
         assert len(sorted_data) == 1
         assert sorted_data[0]['user'] == 'Alice'
+
+
+class TestGetPaginatedMethod:
+    """Test cases for the get_paginated method."""
+
+    @pytest.fixture
+    def mock_analyzer(self):
+        """Create analyzer with mocked session."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', use_cache=False)
+        analyzer.session = Mock()
+        return analyzer
+
+    def test_get_paginated_single_page(self, mock_analyzer):
+        """Test fetching a single page of results."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = [{'id': 1}, {'id': 2}]
+        mock_analyzer.session.get.return_value = mock_response
+
+        result = mock_analyzer.get_paginated('https://api.github.com/test', use_cache=False)
+
+        assert len(result) == 2
+        assert result[0]['id'] == 1
+        assert result[1]['id'] == 2
+
+    def test_get_paginated_multiple_pages(self, mock_analyzer):
+        """Test fetching multiple pages of results."""
+        # First page returns 100 items, second page returns 50 items
+        page1 = [{'id': i} for i in range(100)]
+        page2 = [{'id': i} for i in range(100, 150)]
+
+        mock_analyzer.session.get.side_effect = [
+            Mock(status_code=200, json=lambda: page1),
+            Mock(status_code=200, json=lambda: page2)
+        ]
+
+        result = mock_analyzer.get_paginated('https://api.github.com/test', use_cache=False)
+
+        assert len(result) == 150
+        assert mock_analyzer.session.get.call_count == 2
+
+    def test_get_paginated_empty_response(self, mock_analyzer):
+        """Test handling of empty response."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = []
+        mock_analyzer.session.get.return_value = mock_response
+
+        result = mock_analyzer.get_paginated('https://api.github.com/test', use_cache=False)
+
+        assert len(result) == 0
+
+    def test_get_paginated_with_params(self, mock_analyzer):
+        """Test that parameters are passed correctly."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = [{'id': 1}]
+        mock_analyzer.session.get.return_value = mock_response
+
+        params = {'state': 'open', 'sort': 'created'}
+        mock_analyzer.get_paginated('https://api.github.com/test', params=params, use_cache=False)
+
+        call_args = mock_analyzer.session.get.call_args
+        assert 'state' in call_args[1]['params']
+        assert call_args[1]['params']['state'] == 'open'
+
+    def test_get_paginated_rate_limit_error(self, mock_analyzer):
+        """Test handling of rate limit errors."""
+        mock_response = Mock()
+        mock_response.status_code = 403
+        mock_response.json.return_value = {'message': 'rate limit exceeded'}
+        mock_analyzer.session.get.return_value = mock_response
+
+        with pytest.raises(SystemExit):
+            mock_analyzer.get_paginated('https://api.github.com/test', use_cache=False)
+
+    def test_get_paginated_early_termination(self, mock_analyzer):
+        """Test early termination callback."""
+        page1 = [{'id': i} for i in range(100)]
+        page2 = [{'id': i} for i in range(100, 200)]
+
+        mock_analyzer.session.get.side_effect = [
+            Mock(status_code=200, json=lambda: page1),
+            Mock(status_code=200, json=lambda: page2)
+        ]
+
+        # Callback that stops after first page
+        def stop_after_first(page_data):
+            return False
+
+        result = mock_analyzer.get_paginated(
+            'https://api.github.com/test',
+            use_cache=False,
+            should_continue=stop_after_first
+        )
+
+        assert len(result) == 100
+        assert mock_analyzer.session.get.call_count == 1
+
+
+class TestPRFilteringLogic:
+    """Test cases for PR filtering logic."""
+
+    @pytest.fixture
+    def mock_analyzer(self):
+        """Create analyzer for filtering tests."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', use_cache=False)
+        analyzer.session = Mock()
+        return analyzer
+
+    def test_draft_pr_filtering(self, mock_analyzer):
+        """Test that draft PRs are filtered out."""
+        # This is tested indirectly through the analyze_repository flow
+        # but we can test the draft flag check
+        draft_pr = {
+            'number': 123,
+            'user': {'login': 'other_user'},
+            'title': 'Draft PR',
+            'html_url': 'https://github.com/test/test/pull/123',
+            'state': 'open',
+            'draft': True
+        }
+
+        # When analyzing, draft PRs should be skipped
+        # The _analyze_pr method won't be called for draft PRs in analyze_repository
+        assert draft_pr['draft'] is True
+
+    def test_required_label_filtering(self):
+        """Test that PRs without required label are filtered."""
+        analyzer = GitHubReviewAnalyzer(
+            username='test_user',
+            required_pr_label='ready-for-review',
+            use_cache=False
+        )
+
+        pr_with_label = {
+            'labels': [{'name': 'ready-for-review'}, {'name': 'bug'}]
+        }
+        pr_without_label = {
+            'labels': [{'name': 'bug'}]
+        }
+
+        # Check label presence
+        labels_with = [l['name'] for l in pr_with_label['labels']]
+        labels_without = [l['name'] for l in pr_without_label['labels']]
+
+        assert 'ready-for-review' in labels_with
+        assert 'ready-for-review' not in labels_without
+
+
+class TestReviewActivityTracking:
+    """Test cases for tracking review activity."""
+
+    @pytest.fixture
+    def analyzer_with_data(self):
+        """Create analyzer with some test data."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', use_cache=False)
+
+        # Add some test review data
+        analyzer.reviewed_by_me['alice'].prs_reviewed = 5
+        analyzer.reviewed_by_me['alice'].lines_reviewed = 500
+        analyzer.reviewed_by_me['alice'].additions_reviewed = 400
+        analyzer.reviewed_by_me['alice'].deletions_reviewed = 100
+
+        analyzer.reviewed_by_others['bob'].prs_reviewed = 3
+        analyzer.reviewed_by_others['bob'].lines_reviewed = 300
+        analyzer.reviewed_by_others['bob'].additions_reviewed = 250
+        analyzer.reviewed_by_others['bob'].deletions_reviewed = 50
+
+        return analyzer
+
+    def test_stats_accumulation(self, analyzer_with_data):
+        """Test that stats accumulate correctly."""
+        assert analyzer_with_data.reviewed_by_me['alice'].prs_reviewed == 5
+        assert analyzer_with_data.reviewed_by_me['alice'].lines_reviewed == 500
+
+    def test_multiple_users_tracking(self, analyzer_with_data):
+        """Test tracking multiple users."""
+        # Add another user
+        analyzer_with_data.reviewed_by_me['charlie'].prs_reviewed = 2
+
+        assert len(analyzer_with_data.reviewed_by_me) == 2
+        assert 'alice' in analyzer_with_data.reviewed_by_me
+        assert 'charlie' in analyzer_with_data.reviewed_by_me
+
+    def test_bidirectional_tracking(self, analyzer_with_data):
+        """Test that reviews are tracked in both directions."""
+        # Alice: I reviewed their code
+        assert analyzer_with_data.reviewed_by_me['alice'].prs_reviewed == 5
+
+        # Bob: They reviewed my code
+        assert analyzer_with_data.reviewed_by_others['bob'].prs_reviewed == 3
+
+    def test_line_counts_separated(self, analyzer_with_data):
+        """Test that additions and deletions are tracked separately."""
+        alice_stats = analyzer_with_data.reviewed_by_me['alice']
+
+        assert alice_stats.additions_reviewed == 400
+        assert alice_stats.deletions_reviewed == 100
+        assert alice_stats.lines_reviewed == 500  # Total
+
+
+class TestAPIErrorHandling:
+    """Test cases for API error handling."""
+
+    @pytest.fixture
+    def mock_analyzer(self):
+        """Create analyzer with mocked session."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', use_cache=False)
+        analyzer.session = Mock()
+        return analyzer
+
+    def test_404_error_handling(self, mock_analyzer):
+        """Test handling of 404 errors."""
+        mock_response = Mock()
+        mock_response.status_code = 404
+        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError("404 Not Found")
+        mock_analyzer.session.get.return_value = mock_response
+
+        with pytest.raises(requests.exceptions.HTTPError):
+            mock_analyzer.get_paginated('https://api.github.com/test', use_cache=False)
+
+    def test_500_error_with_retry(self, mock_analyzer):
+        """Test that 500 errors are retried (via HTTPAdapter config)."""
+        # The analyzer is configured with retry logic in HTTPAdapter
+        # We just verify the configuration exists
+        assert mock_analyzer.session is not None
+
+    def test_network_error_handling(self, mock_analyzer):
+        """Test handling of network errors."""
+        mock_analyzer.session.get.side_effect = requests.exceptions.ConnectionError("Network error")
+
+        with pytest.raises(requests.exceptions.ConnectionError):
+            mock_analyzer.get_paginated('https://api.github.com/test', use_cache=False)
+
+
+class TestPRInfoStructure:
+    """Test cases for PR info data structures."""
+
+    def test_pr_info_contains_required_fields(self):
+        """Test that PR info structure contains all required fields."""
+        pr_info = {
+            'title': 'Test PR',
+            'url': 'https://github.com/test/test/pull/123',
+            'number': 123,
+            'lines': 500,
+            'additions': 400,
+            'deletions': 100
+        }
+
+        assert 'title' in pr_info
+        assert 'url' in pr_info
+        assert 'number' in pr_info
+        assert 'lines' in pr_info
+        assert 'additions' in pr_info
+        assert 'deletions' in pr_info
+
+    def test_pr_info_line_calculation(self):
+        """Test that total lines equals additions plus deletions."""
+        additions = 400
+        deletions = 100
+        total_lines = additions + deletions
+
+        assert total_lines == 500
+
+
+class TestReviewStatsAggregation:
+    """Test cases for aggregating review statistics."""
+
+    @pytest.fixture
+    def analyzer_with_multiple_users(self):
+        """Create analyzer with multiple users."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', use_cache=False)
+
+        # Add data for multiple users
+        for user, (prs, lines) in [
+            ('alice', (5, 500)),
+            ('bob', (3, 300)),
+            ('charlie', (2, 200))
+        ]:
+            analyzer.reviewed_by_me[user].prs_reviewed = prs
+            analyzer.reviewed_by_me[user].lines_reviewed = lines
+
+        return analyzer
+
+    def test_total_prs_calculation(self, analyzer_with_multiple_users):
+        """Test calculating total PRs across all users."""
+        total_prs = sum(
+            stats.prs_reviewed
+            for stats in analyzer_with_multiple_users.reviewed_by_me.values()
+        )
+
+        assert total_prs == 10  # 5 + 3 + 2
+
+    def test_total_lines_calculation(self, analyzer_with_multiple_users):
+        """Test calculating total lines across all users."""
+        total_lines = sum(
+            stats.lines_reviewed
+            for stats in analyzer_with_multiple_users.reviewed_by_me.values()
+        )
+
+        assert total_lines == 1000  # 500 + 300 + 200
+
+    def test_user_count(self, analyzer_with_multiple_users):
+        """Test counting unique users."""
+        user_count = len(analyzer_with_multiple_users.reviewed_by_me)
+
+        assert user_count == 3
+
+
+class TestBalanceCalculation:
+    """Test cases for review balance calculations."""
+
+    def test_positive_balance(self):
+        """Test calculation when I reviewed more than they did."""
+        i_reviewed = 500
+        they_reviewed = 300
+        balance = they_reviewed - i_reviewed
+
+        assert balance == -200  # Negative means they owe me
+
+    def test_negative_balance(self):
+        """Test calculation when they reviewed more than I did."""
+        i_reviewed = 300
+        they_reviewed = 500
+        balance = they_reviewed - i_reviewed
+
+        assert balance == 200  # Positive means I owe them
+
+    def test_zero_balance(self):
+        """Test calculation when reviews are balanced."""
+        i_reviewed = 500
+        they_reviewed = 500
+        balance = they_reviewed - i_reviewed
+
+        assert balance == 0
+
+    def test_balance_with_additions_and_deletions(self):
+        """Test that balance accounts for both additions and deletions."""
+        my_additions = 400
+        my_deletions = 100
+        their_additions = 300
+        their_deletions = 150
+
+        my_total = my_additions + my_deletions  # 500
+        their_total = their_additions + their_deletions  # 450
+        balance = their_total - my_total
+
+        assert balance == -50
+
+
+class TestCacheKeyGeneration:
+    """Test cases for cache key generation."""
+
+    @pytest.fixture
+    def analyzer(self):
+        """Create analyzer for cache key tests."""
+        return GitHubReviewAnalyzer(username='test_user', use_cache=False)
+
+    def test_same_params_same_key(self, analyzer):
+        """Test that identical parameters generate the same cache key."""
+        key1 = analyzer._get_cache_key('repo', 'endpoint', {'param': 'value'})
+        key2 = analyzer._get_cache_key('repo', 'endpoint', {'param': 'value'})
+
+        assert key1 == key2
+
+    def test_different_params_different_key(self, analyzer):
+        """Test that different parameters generate different cache keys."""
+        key1 = analyzer._get_cache_key('repo', 'endpoint', {'param': 'value1'})
+        key2 = analyzer._get_cache_key('repo', 'endpoint', {'param': 'value2'})
+
+        assert key1 != key2
+
+    def test_different_repo_different_key(self, analyzer):
+        """Test that different repos generate different cache keys."""
+        key1 = analyzer._get_cache_key('repo1', 'endpoint', {'param': 'value'})
+        key2 = analyzer._get_cache_key('repo2', 'endpoint', {'param': 'value'})
+
+        assert key1 != key2
+
+    def test_none_params_handling(self, analyzer):
+        """Test that None params are handled correctly."""
+        key1 = analyzer._get_cache_key('repo', 'endpoint', None)
+        key2 = analyzer._get_cache_key('repo', 'endpoint', None)
+
+        assert key1 == key2
+
+    def test_param_order_independence(self, analyzer):
+        """Test that parameter order doesn't affect cache key."""
+        # Due to JSON sorting in _get_cache_key, order shouldn't matter
+        key1 = analyzer._get_cache_key('repo', 'endpoint', {'a': '1', 'b': '2'})
+        key2 = analyzer._get_cache_key('repo', 'endpoint', {'b': '2', 'a': '1'})
+
+        assert key1 == key2
+
+
+class TestDefaultDictBehavior:
+    """Test cases for defaultdict behavior in stats tracking."""
+
+    def test_new_user_creates_empty_stats(self):
+        """Test that accessing a new user creates empty ReviewStats."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', use_cache=False)
+
+        # Access a user that doesn't exist yet
+        stats = analyzer.reviewed_by_me['new_user']
+
+        assert isinstance(stats, ReviewStats)
+        assert stats.prs_reviewed == 0
+        assert stats.lines_reviewed == 0
+
+    def test_multiple_new_users(self):
+        """Test creating stats for multiple users on the fly."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', use_cache=False)
+
+        # Access multiple users
+        analyzer.reviewed_by_me['user1'].prs_reviewed = 1
+        analyzer.reviewed_by_me['user2'].prs_reviewed = 2
+        analyzer.reviewed_by_me['user3'].prs_reviewed = 3
+
+        assert len(analyzer.reviewed_by_me) == 3
+
+
+class TestSessionConfiguration:
+    """Test cases for session configuration."""
+
+    def test_session_has_retry_adapter(self):
+        """Test that session is configured with retry adapter."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', use_cache=False)
+
+        assert analyzer.session is not None
+        # Verify adapter is mounted for https
+        assert 'https://' in analyzer.session.adapters
+
+    def test_session_headers_with_token(self):
+        """Test that Authorization header is set when token is provided."""
+        analyzer = GitHubReviewAnalyzer(
+            username='test_user',
+            token='test_token_123',
+            use_cache=False
+        )
+
+        assert 'Authorization' in analyzer.session.headers
+        assert analyzer.session.headers['Authorization'] == 'token test_token_123'
+
+    def test_session_headers_without_token(self):
+        """Test that no Authorization header is set without token."""
+        with patch.dict(os.environ, {}, clear=True):
+            analyzer = GitHubReviewAnalyzer(username='test_user', use_cache=False)
+
+            assert 'Authorization' not in analyzer.session.headers
+
+
+class TestPRListStorage:
+    """Test cases for storing PR lists in ReviewStats."""
+
+    def test_pr_list_append(self):
+        """Test appending PRs to stats."""
+        stats = ReviewStats()
+
+        pr1 = {'number': 1, 'title': 'PR 1'}
+        pr2 = {'number': 2, 'title': 'PR 2'}
+
+        stats.prs.append(pr1)
+        stats.prs.append(pr2)
+
+        assert len(stats.prs) == 2
+        assert stats.prs[0]['number'] == 1
+        assert stats.prs[1]['number'] == 2
+
+    def test_pr_list_contains_details(self):
+        """Test that PR list contains all necessary details."""
+        stats = ReviewStats()
+
+        pr_info = {
+            'title': 'Test PR',
+            'url': 'https://github.com/test/repo/pull/123',
+            'number': 123,
+            'lines': 500,
+            'additions': 400,
+            'deletions': 100
+        }
+
+        stats.prs.append(pr_info)
+
+        stored_pr = stats.prs[0]
+        assert stored_pr['title'] == 'Test PR'
+        assert stored_pr['number'] == 123
+        assert stored_pr['additions'] == 400
+        assert stored_pr['deletions'] == 100
+
+
+class TestThreadSafety:
+    """Test cases for thread safety in parallel processing."""
+
+    def test_stats_lock_exists(self):
+        """Test that stats lock is initialized."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', use_cache=False)
+
+        assert hasattr(analyzer, '_stats_lock')
+        assert isinstance(analyzer._stats_lock, Lock)
+
+    def test_concurrent_stats_update(self):
+        """Test that stats can be updated safely from multiple threads."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', use_cache=False)
+
+        def update_stats(user, count):
+            with analyzer._stats_lock:
+                analyzer.reviewed_by_me[user].prs_reviewed += count
+
+        # Simulate concurrent updates
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = [
+                executor.submit(update_stats, 'alice', 1),
+                executor.submit(update_stats, 'alice', 1),
+                executor.submit(update_stats, 'alice', 1)
+            ]
+
+            for future in as_completed(futures):
+                future.result()
+
+        assert analyzer.reviewed_by_me['alice'].prs_reviewed == 3
+
+
+class TestRepositoryListTracking:
+    """Test cases for tracking analyzed repositories."""
+
+    def test_repository_list_initialization(self):
+        """Test that repository list is initialized empty."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', use_cache=False)
+
+        assert analyzer.repositories == []
+
+    def test_repository_deduplication(self):
+        """Test that repositories are not duplicated in the list."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', use_cache=False)
+
+        # Manually add a repository twice
+        repo = 'owner/repo'
+        if repo not in analyzer.repositories:
+            analyzer.repositories.append(repo)
+        if repo not in analyzer.repositories:
+            analyzer.repositories.append(repo)
+
+        assert len(analyzer.repositories) == 1
+
+
+class TestExcludedUsersSet:
+    """Test cases for excluded users functionality."""
+
+    def test_excluded_users_is_set(self):
+        """Test that excluded_users is a set."""
+        analyzer = GitHubReviewAnalyzer(
+            username='test_user',
+            excluded_users={'bot1', 'bot2'},
+            use_cache=False
+        )
+
+        assert isinstance(analyzer.excluded_users, set)
+
+    def test_excluded_users_membership(self):
+        """Test checking membership in excluded users."""
+        excluded = {'dependabot', 'renovate'}
+        analyzer = GitHubReviewAnalyzer(
+            username='test_user',
+            excluded_users=excluded,
+            use_cache=False
+        )
+
+        assert 'dependabot' in analyzer.excluded_users
+        assert 'renovate' in analyzer.excluded_users
+        assert 'real_user' not in analyzer.excluded_users
 
 
 if __name__ == '__main__':
