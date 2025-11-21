@@ -6,10 +6,13 @@ A Python script to analyze GitHub pull request review activity between you and o
 
 - 📊 Track PRs you reviewed vs. PRs others reviewed for you
 - 📈 Calculate lines of code reviewed in both directions
+- ➕ Separate tracking of additions (+lines) and deletions (-lines)
 - 🔢 Count review events (approvals, change requests)
 - 💬 Track number of comments written
 - 📝 List all reviewed PRs with clickable links
 - ⚖️ Calculate review balance (offset) between users
+- 💾 Smart caching system to speed up subsequent runs
+- 🔓 Includes open (unmerged) PRs in analysis
 
 ## Prerequisites
 
@@ -73,6 +76,36 @@ Analyzing repository: ls1intum/Artemis
   ...
 ```
 
+## Caching
+
+The script automatically caches API responses to `.github_review_cache.json` in the current directory. This significantly speeds up subsequent runs by avoiding redundant API calls.
+
+### Cache Features
+
+- **Automatic**: Caching is enabled by default
+- **Smart PR-state aware**: Only caches data for closed PRs (open PRs always fetch fresh data)
+- **Permanent**: Cache entries never expire (closed PRs don't change)
+- **Selective**: Only fetches new data when not in cache
+- **Persistent**: Cache is saved to disk and reused across runs indefinitely
+
+### Cache Control
+
+To disable caching, set the `USE_CACHE` environment variable:
+
+```bash
+# Disable caching for a single run
+USE_CACHE=false python3 github-review-analyzer.py
+
+# Or in your .env file
+USE_CACHE=false
+```
+
+To clear the cache, simply delete the cache file:
+
+```bash
+rm .github_review_cache.json
+```
+
 ## Output
 
 The script generates a detailed report showing:
@@ -106,21 +139,25 @@ REVIEW SUMMARY FOR florian-glombik
 Metric                         I reviewed           They reviewed
 ──────────────────────────────────────────────────────────────────────────────
 PRs reviewed                   15                   10
-Lines reviewed                 5,420                3,200
+Lines reviewed (total)         5,420                3,200
+  +lines (additions)           4,200                2,500
+  -lines (deletions)           1,220                  700
 Review events                  18                   12
 Comments written               45                   28
 
-📊 Line Review Offset: +2,220 lines
-   (positive = you reviewed more of their code)
+📊 Line Review Offset:
+   Total: +2,220 lines (positive = you reviewed more of their code)
+   +lines: +1,700
+   -lines: +520
 
 📝 PRs I reviewed (15):
    • #1234: Add new feature for exercise management
-     https://github.com/ls1intum/Artemis/pull/1234 (450 lines)
+     https://github.com/ls1intum/Artemis/pull/1234 (+380 / -70 lines)
    ...
 
 📝 PRs they reviewed (10):
    • #1235: Fix bug in quiz assessment
-     https://github.com/ls1intum/Artemis/pull/1235 (320 lines)
+     https://github.com/ls1intum/Artemis/pull/1235 (+250 / -70 lines)
    ...
 
 ================================================================================
@@ -129,8 +166,15 @@ OVERALL STATISTICS
 
 Total PRs I reviewed: 45
 Total PRs others reviewed of mine: 38
+
 Total lines I reviewed: 15,840
+  +lines: 12,300
+  -lines: 3,540
+
 Total lines others reviewed: 12,450
+  +lines: 9,800
+  -lines: 2,650
+
 Number of collaborators: 12
 ```
 
@@ -143,7 +187,10 @@ Using a token is highly recommended for analyzing repositories with many PRs.
 
 ## Notes
 
-- The script counts additions + deletions as total lines
+- The script tracks additions (+lines) and deletions (-lines) separately and also shows the total
+- Both open and closed PRs are included in the analysis
+- Only closed PRs are cached; open PRs always fetch fresh data to reflect ongoing changes
+- Cached data never expires since closed PR data is immutable
 - Review events include approvals, change requests, and dismissals
 - Comments include both review comments and general PR comments
 - PRs are filtered by creation date within the specified time range

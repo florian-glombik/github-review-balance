@@ -7,9 +7,11 @@ Analyzes PR review activity between users in specified repositories.
 import os
 import sys
 import logging
+import json
+import hashlib
 from datetime import datetime, timedelta
 from collections import defaultdict
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Optional
 import requests
 from dataclasses import dataclass, field
 from dotenv import load_dotenv
@@ -28,6 +30,8 @@ class ReviewStats:
     """Statistics for reviews between two users."""
     prs_reviewed: int = 0
     lines_reviewed: int = 0
+    additions_reviewed: int = 0  # Total +lines reviewed
+    deletions_reviewed: int = 0  # Total -lines reviewed
     review_events: int = 0  # approvals, change requests, etc.
     comments: int = 0
     prs: List[Dict] = field(default_factory=list)
@@ -36,10 +40,13 @@ class ReviewStats:
 class GitHubReviewAnalyzer:
     """Analyzes GitHub PR reviews for a given user across repositories."""
 
-    def __init__(self, username: str, token: str = None):
+    def __init__(self, username: str, token: str = None, cache_file: str = '.github_review_cache.json', use_cache: bool = True):
         self.username = username
         self.token = token or os.environ.get('GITHUB_TOKEN')
         self.session = requests.Session()
+        self.cache_file = cache_file
+        self.use_cache = use_cache
+        self.cache = self._load_cache()
 
         if self.token:
             self.session.headers.update({
@@ -55,8 +62,75 @@ class GitHubReviewAnalyzer:
         self.reviewed_by_me: Dict[str, ReviewStats] = defaultdict(ReviewStats)
         self.reviewed_by_others: Dict[str, ReviewStats] = defaultdict(ReviewStats)
 
-    def get_paginated(self, url: str, params: Dict = None) -> List[Dict]:
-        """Fetch all pages of a paginated GitHub API endpoint."""
+    def _get_cache_key(self, repo: str, endpoint: str, params: Dict = None) -> str:
+        """Generate a cache key for an API call."""
+        key_data = f"{repo}:{endpoint}:{json.dumps(params, sort_keys=True) if params else ''}"
+        return hashlib.md5(key_data.encode()).hexdigest()
+
+    def _load_cache(self) -> Dict:
+        """Load cache from file."""
+        if not self.use_cache or not os.path.exists(self.cache_file):
+            return {}
+
+        try:
+            with open(self.cache_file, 'r') as f:
+                cache = json.load(f)
+                logging.info(f"Loaded cache from {self.cache_file} with {len(cache)} entries")
+                return cache
+        except Exception as e:
+            logging.warning(f"Failed to load cache: {e}")
+            return {}
+
+    def _save_cache(self):
+        """Save cache to file."""
+        if not self.use_cache:
+            return
+
+        try:
+            with open(self.cache_file, 'w') as f:
+                json.dump(self.cache, f, indent=2)
+                logging.info(f"Saved cache to {self.cache_file} with {len(self.cache)} entries")
+        except Exception as e:
+            logging.warning(f"Failed to save cache: {e}")
+
+    def _get_from_cache(self, cache_key: str) -> Optional[List[Dict]]:
+        """Get data from cache if it exists."""
+        if not self.use_cache or cache_key not in self.cache:
+            return None
+
+        cached_entry = self.cache[cache_key]
+        cached_time = datetime.fromisoformat(cached_entry['timestamp'])
+        age_hours = (datetime.now() - cached_time).total_seconds() / 3600
+
+        logging.debug(f"Using cached data (age: {age_hours:.1f} hours)")
+        return cached_entry['data']
+
+    def _put_in_cache(self, cache_key: str, data: List[Dict]):
+        """Store data in cache."""
+        if not self.use_cache:
+            return
+
+        self.cache[cache_key] = {
+            'timestamp': datetime.now().isoformat(),
+            'data': data
+        }
+
+    def get_paginated(self, url: str, params: Dict = None, use_cache: bool = True) -> List[Dict]:
+        """Fetch all pages of a paginated GitHub API endpoint with caching support."""
+        # Generate cache key
+        cache_params = params.copy() if params else {}
+        cache_params.pop('page', None)  # Don't include page in cache key
+        cache_params.pop('per_page', None)  # Don't include per_page in cache key
+        cache_key = self._get_cache_key('', url, cache_params)
+
+        # Try to get from cache
+        if use_cache:
+            cached_data = self._get_from_cache(cache_key)
+            if cached_data is not None:
+                logging.debug(f"Cache hit for {url}")
+                return cached_data
+
+        # Fetch from API
         results = []
         page = 1
         per_page = 100
@@ -88,6 +162,11 @@ class GitHubReviewAnalyzer:
             page += 1
 
         logging.debug(f"Fetched {len(results)} total items from {url}")
+
+        # Store in cache
+        if use_cache:
+            self._put_in_cache(cache_key, results)
+
         return results
 
     def analyze_repository(self, repo: str, months: int = 3):
@@ -134,19 +213,23 @@ class GitHubReviewAnalyzer:
         pr_author = pr['user']['login']
         pr_title = pr['title']
         pr_url = pr['html_url']
+        pr_state = pr.get('state', 'open')
         additions = pr.get('additions', 0)
         deletions = pr.get('deletions', 0)
         total_lines = additions + deletions
 
-        logging.debug(f"Analyzing PR #{pr_number}: {pr_title} (by {pr_author}, {total_lines} lines)")
+        # Only cache closed PRs since open PRs can still change
+        should_cache = (pr_state == 'closed')
+
+        logging.debug(f"Analyzing PR #{pr_number}: {pr_title} (by {pr_author}, {total_lines} lines, state: {pr_state})")
 
         # Fetch reviews for this PR
         reviews_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews"
-        reviews = self.get_paginated(reviews_url)
+        reviews = self.get_paginated(reviews_url, use_cache=should_cache)
 
         # Fetch review comments for this PR
         comments_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/comments"
-        review_comments = self.get_paginated(comments_url)
+        review_comments = self.get_paginated(comments_url, use_cache=should_cache)
 
         # Track unique reviewers and their activity
         reviewer_activity = defaultdict(lambda: {
@@ -180,7 +263,9 @@ class GitHubReviewAnalyzer:
             'title': pr_title,
             'url': pr_url,
             'number': pr_number,
-            'lines': total_lines
+            'lines': total_lines,
+            'additions': additions,
+            'deletions': deletions
         }
 
         if pr_author == self.username:
@@ -189,6 +274,8 @@ class GitHubReviewAnalyzer:
                 stats = self.reviewed_by_others[reviewer]
                 stats.prs_reviewed += 1
                 stats.lines_reviewed += total_lines
+                stats.additions_reviewed += additions
+                stats.deletions_reviewed += deletions
                 stats.review_events += activity['review_events']
                 stats.comments += activity['comments']
                 stats.prs.append(pr_info)
@@ -201,6 +288,8 @@ class GitHubReviewAnalyzer:
                 stats = self.reviewed_by_me[pr_author]
                 stats.prs_reviewed += 1
                 stats.lines_reviewed += total_lines
+                stats.additions_reviewed += additions
+                stats.deletions_reviewed += deletions
                 stats.review_events += len(my_reviews)
                 stats.comments += len(my_comments)
                 stats.prs.append(pr_info)
@@ -240,29 +329,37 @@ class GitHubReviewAnalyzer:
             print(f"\n{'Metric':<30} {'I reviewed':<20} {'They reviewed':<20}")
             print(f"{'-'*70}")
             print(f"{'PRs reviewed':<30} {my_reviews.prs_reviewed:<20} {their_reviews.prs_reviewed:<20}")
-            print(f"{'Lines reviewed':<30} {my_reviews.lines_reviewed:<20} {their_reviews.lines_reviewed:<20}")
+            print(f"{'Lines reviewed (total)':<30} {my_reviews.lines_reviewed:<20} {their_reviews.lines_reviewed:<20}")
+            print(f"{'  +lines (additions)':<30} {my_reviews.additions_reviewed:<20} {their_reviews.additions_reviewed:<20}")
+            print(f"{'  -lines (deletions)':<30} {my_reviews.deletions_reviewed:<20} {their_reviews.deletions_reviewed:<20}")
             print(f"{'Review events':<30} {my_reviews.review_events:<20} {their_reviews.review_events:<20}")
             print(f"{'Comments written':<30} {my_reviews.comments:<20} {their_reviews.comments:<20}")
 
-            # Calculate offset
+            # Calculate offsets
             line_offset = my_reviews.lines_reviewed - their_reviews.lines_reviewed
+            additions_offset = my_reviews.additions_reviewed - their_reviews.additions_reviewed
+            deletions_offset = my_reviews.deletions_reviewed - their_reviews.deletions_reviewed
             offset_sign = "+" if line_offset >= 0 else ""
-            print(f"\n📊 Line Review Offset: {offset_sign}{line_offset:,} lines ")
-            print(f"   (positive = you reviewed more of their code)")
+            additions_sign = "+" if additions_offset >= 0 else ""
+            deletions_sign = "+" if deletions_offset >= 0 else ""
+            print(f"\n📊 Line Review Offset:")
+            print(f"   Total: {offset_sign}{line_offset:,} lines (positive = you reviewed more of their code)")
+            print(f"   +lines: {additions_sign}{additions_offset:,}")
+            print(f"   -lines: {deletions_sign}{deletions_offset:,}")
 
             # List PRs I reviewed
             if my_reviews.prs:
                 print(f"\n📝 PRs I reviewed ({len(my_reviews.prs)}):")
                 for pr in my_reviews.prs:
                     print(f"   • #{pr['number']}: {pr['title']}")
-                    print(f"     {pr['url']} ({pr['lines']:,} lines)")
+                    print(f"     {pr['url']} (+{pr['additions']:,} / -{pr['deletions']:,} lines)")
 
             # List PRs they reviewed
             if their_reviews.prs:
                 print(f"\n📝 PRs they reviewed ({len(their_reviews.prs)}):")
                 for pr in their_reviews.prs:
                     print(f"   • #{pr['number']}: {pr['title']}")
-                    print(f"     {pr['url']} ({pr['lines']:,} lines)")
+                    print(f"     {pr['url']} (+{pr['additions']:,} / -{pr['deletions']:,} lines)")
 
         # Overall statistics
         print(f"\n{'='*80}")
@@ -273,12 +370,20 @@ class GitHubReviewAnalyzer:
         total_reviewed_by_others = sum(s.prs_reviewed for s in self.reviewed_by_others.values())
         total_lines_by_me = sum(s.lines_reviewed for s in self.reviewed_by_me.values())
         total_lines_by_others = sum(s.lines_reviewed for s in self.reviewed_by_others.values())
+        total_additions_by_me = sum(s.additions_reviewed for s in self.reviewed_by_me.values())
+        total_additions_by_others = sum(s.additions_reviewed for s in self.reviewed_by_others.values())
+        total_deletions_by_me = sum(s.deletions_reviewed for s in self.reviewed_by_me.values())
+        total_deletions_by_others = sum(s.deletions_reviewed for s in self.reviewed_by_others.values())
 
         print(f"\nTotal PRs I reviewed: {total_reviewed_by_me}")
         print(f"Total PRs others reviewed of mine: {total_reviewed_by_others}")
-        print(f"Total lines I reviewed: {total_lines_by_me:,}")
-        print(f"Total lines others reviewed: {total_lines_by_others:,}")
-        print(f"Number of collaborators: {len(all_users)}")
+        print(f"\nTotal lines I reviewed: {total_lines_by_me:,}")
+        print(f"  +lines: {total_additions_by_me:,}")
+        print(f"  -lines: {total_deletions_by_me:,}")
+        print(f"\nTotal lines others reviewed: {total_lines_by_others:,}")
+        print(f"  +lines: {total_additions_by_others:,}")
+        print(f"  -lines: {total_deletions_by_others:,}")
+        print(f"\nNumber of collaborators: {len(all_users)}")
 
 
 def main():
@@ -342,8 +447,11 @@ def main():
         months_input = input("\nAnalyze last N months [default: 3]: ").strip()
         months = int(months_input) if months_input else 3
 
+    # Check if caching should be disabled
+    use_cache = os.environ.get('USE_CACHE', 'true').lower() not in ('false', '0', 'no')
+
     # Create analyzer
-    analyzer = GitHubReviewAnalyzer(username, token)
+    analyzer = GitHubReviewAnalyzer(username, token, use_cache=use_cache)
 
     # Analyze each repository
     logging.info(f"Starting analysis of {len(repos)} repository/repositories")
@@ -353,6 +461,9 @@ def main():
         except Exception as e:
             logging.error(f"Error analyzing {repo}: {e}", exc_info=True)
             continue
+
+    # Save cache
+    analyzer._save_cache()
 
     # Print summary
     logging.info("Analysis complete, generating summary...")
