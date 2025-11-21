@@ -599,7 +599,9 @@ class GitHubReviewAnalyzer:
                 'i_reviewed': my_reviews.lines_reviewed,
                 'i_additions': my_reviews.additions_reviewed,
                 'i_deletions': my_reviews.deletions_reviewed,
-                'total_prs': total_prs
+                'total_prs': total_prs,
+                'their_prs_i_reviewed': my_reviews.prs_reviewed,
+                'my_prs_they_reviewed': their_reviews.prs_reviewed
             })
 
         # Sort by total PRs reviewed (descending)
@@ -613,8 +615,8 @@ class GitHubReviewAnalyzer:
 
         # Display table
         print("\nReview Balance (lines reviewed):")
-        print(f"{'User':<20} {'Total PRs':<10} {'They reviewed':<25} {'I reviewed':<25} {'Balance':<15} {'Action'}")
-        print(f"{'-'*115}")
+        print(f"{'User':<20} {'Total PRs':<10} {'Their PRs':<12} {'My PRs':<12} {'They reviewed':<25} {'I reviewed':<25} {'Balance':<15} {'Action'}")
+        print(f"{'-'*155}")
 
         for item in review_balance:
             user = item['user']
@@ -626,6 +628,10 @@ class GitHubReviewAnalyzer:
             i_reviewed = item['i_reviewed']
             i_additions = item['i_additions']
             i_deletions = item['i_deletions']
+
+            # Get PR counts
+            their_prs_i_reviewed = item['their_prs_i_reviewed']
+            my_prs_they_reviewed = item['my_prs_they_reviewed']
 
             # Format: +add / -del (without total)
             they_str = f"+{they_additions:,}/-{they_deletions:,}"
@@ -652,7 +658,7 @@ class GitHubReviewAnalyzer:
                 action = "← They should review my PRs"
                 balance_str = f"{balance:,}"
 
-            print(f"{color}{user:<20} {total_prs:<10} {they_str:<25} {i_str:<25} {balance_str:<15} {action}{RESET}")
+            print(f"{color}{user:<20} {total_prs:<10} {their_prs_i_reviewed:<12} {my_prs_they_reviewed:<12} {they_str:<25} {i_str:<25} {balance_str:<15} {action}{RESET}")
 
         # Get open PRs that need review
         open_prs_by_author = self.get_open_prs_needing_review()
@@ -675,12 +681,28 @@ class GitHubReviewAnalyzer:
 
             for author, prs in authors_with_prs:
                 balance_info = next((item for item in review_balance if item['user'] == author), None)
-                if balance_info and balance_info['balance'] > 0:
-                    priority = f"(Priority: You owe them {balance_info['balance']:,} lines)"
+
+                # Determine color and priority message
+                if balance_info:
+                    balance = balance_info['balance']
+
+                    if balance == 0:
+                        color = RESET
+                        priority = ""
+                    elif balance > 0:
+                        color = GREEN
+                        priority = f"(Priority: You owe them {balance:,} lines)"
+                    elif balance > -1000:
+                        color = YELLOW
+                        priority = ""
+                    else:  # <= -1000
+                        color = RED
+                        priority = ""
                 else:
+                    color = RESET
                     priority = ""
 
-                print(f"From {author} {priority}:")
+                print(f"{color}From {author} {priority}:{RESET}")
                 for pr in prs:
                     total_lines = pr['additions'] + pr['deletions']
                     repo_short = pr['repo'].split('/')[-1]
