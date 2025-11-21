@@ -11,6 +11,7 @@ A Python script to analyze GitHub pull request review activity between you and o
 - 💬 Track number of comments written
 - 📝 List all reviewed PRs with clickable links
 - ⚖️ Calculate review balance (offset) between users
+- 🔀 Sortable review balance table by different columns
 - 💾 Smart caching system to speed up subsequent runs
 - 🔓 Includes open (unmerged) PRs in analysis
 
@@ -125,6 +126,32 @@ You can configure the script using environment variables in your `.env` file:
 - `ANALYSIS_MONTHS`: Number of months to analyze (default: 3)
 - `EXCLUDED_USERS`: Comma-separated list of users to exclude from analysis
 - `USE_CACHE`: Enable/disable caching (default: true)
+- `SORT_BY`: Column to sort the review balance table by (default: total_prs)
+
+### Table Sorting
+
+The review balance table can be sorted by different columns using the `SORT_BY` environment variable. Available options:
+
+- `total_prs` (default): Total number of PRs reviewed between you and each user
+- `balance`: Review balance (positive = you reviewed more of their code, negative = they reviewed more of yours)
+- `user`: Username (alphabetically)
+- `they_reviewed`: Total lines they reviewed of your code
+- `i_reviewed`: Total lines you reviewed of their code
+- `their_prs`: Number of their PRs you reviewed
+- `my_prs`: Number of your PRs they reviewed
+
+Example usage:
+
+```bash
+# Sort by review balance to see who you owe reviews to
+SORT_BY=balance python3 github-review-analyzer.py
+
+# Sort alphabetically by username
+SORT_BY=user python3 github-review-analyzer.py
+
+# Or in your .env file
+SORT_BY=balance
+```
 
 Example `.env` file:
 ```bash
@@ -134,6 +161,7 @@ GITHUB_REPOS=ls1intum/Artemis
 ANALYSIS_MONTHS=6
 EXCLUDED_USERS=coderabbitai[bot],dependabot,bot-user
 USE_CACHE=true
+SORT_BY=balance
 ```
 
 ## Output

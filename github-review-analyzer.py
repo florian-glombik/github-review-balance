@@ -44,7 +44,7 @@ class ReviewStats:
 class GitHubReviewAnalyzer:
     """Analyzes GitHub PR reviews for a given user across repositories."""
 
-    def __init__(self, username: str, token: str = None, cache_file: str = '.github_review_cache.json', use_cache: bool = True, excluded_users: Set[str] = None, required_pr_label: str = None):
+    def __init__(self, username: str, token: str = None, cache_file: str = '.github_review_cache.json', use_cache: bool = True, excluded_users: Set[str] = None, required_pr_label: str = None, sort_by: str = 'total_prs'):
         self.username = username
         self.token = token or os.environ.get('GITHUB_TOKEN')
         self.session = requests.Session()
@@ -53,6 +53,7 @@ class GitHubReviewAnalyzer:
         self.cache = self._load_cache()
         self.excluded_users = excluded_users or set()
         self.required_pr_label = required_pr_label
+        self.sort_by = sort_by
 
         # Configure session with larger connection pool to handle concurrent requests
         # Pool size = 10 (outer workers) * 3 (inner workers per PR) = 30 + buffer
@@ -585,8 +586,23 @@ class GitHubReviewAnalyzer:
                 'my_prs_they_reviewed': their_reviews.prs_reviewed
             })
 
-        # Sort by total PRs reviewed (descending)
-        review_balance.sort(key=lambda x: x['total_prs'], reverse=True)
+        # Sort by specified column
+        sort_key_map = {
+            'total_prs': lambda x: x['total_prs'],
+            'balance': lambda x: x['balance'],
+            'user': lambda x: x['user'].lower(),
+            'they_reviewed': lambda x: x['they_reviewed'],
+            'i_reviewed': lambda x: x['i_reviewed'],
+            'their_prs': lambda x: x['their_prs_i_reviewed'],
+            'my_prs': lambda x: x['my_prs_they_reviewed']
+        }
+
+        # Default to total_prs if invalid sort_by is provided
+        sort_key = sort_key_map.get(self.sort_by, sort_key_map['total_prs'])
+
+        # Sort by user alphabetically (ascending), otherwise descending
+        reverse_sort = (self.sort_by != 'user')
+        review_balance.sort(key=sort_key, reverse=reverse_sort)
 
         # ANSI color codes
         GREEN = '\033[92m'
@@ -863,8 +879,18 @@ def main():
         required_pr_label = required_pr_label.strip()
         logging.info(f"Filtering PRs by label: '{required_pr_label}'")
 
+    # Get sort column from environment
+    sort_by = os.environ.get('SORT_BY', 'total_prs').strip().lower()
+    valid_sort_options = ['total_prs', 'balance', 'user', 'they_reviewed', 'i_reviewed', 'their_prs', 'my_prs']
+    if sort_by not in valid_sort_options:
+        logging.warning(f"Invalid SORT_BY value '{sort_by}', using default: total_prs")
+        logging.warning(f"Valid options: {', '.join(valid_sort_options)}")
+        sort_by = 'total_prs'
+    else:
+        logging.info(f"Sorting review balance table by: {sort_by}")
+
     # Create analyzer
-    analyzer = GitHubReviewAnalyzer(username, token, use_cache=use_cache, excluded_users=excluded_users, required_pr_label=required_pr_label)
+    analyzer = GitHubReviewAnalyzer(username, token, use_cache=use_cache, excluded_users=excluded_users, required_pr_label=required_pr_label, sort_by=sort_by)
 
     # Analyze each repository
     logging.info(f"Starting analysis of {len(repos)} repository/repositories")
