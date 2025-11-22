@@ -1222,5 +1222,668 @@ class TestExcludedUsersSet:
         assert 'real_user' not in analyzer.excluded_users
 
 
+class TestAnalyzeRepositoryMethod:
+    """Test cases for analyze_repository method."""
+
+    @pytest.fixture
+    def mock_analyzer(self):
+        """Create analyzer with mocked methods."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', token='test_token', use_cache=False)
+        analyzer.session = Mock()
+        return analyzer
+
+    def test_analyze_repository_with_merged_prs(self, mock_analyzer, capsys):
+        """Test analyzing repository with merged PRs."""
+        # Mock PRs
+        merged_pr = {
+            'number': 1,
+            'user': {'login': 'other_user'},
+            'title': 'Test PR',
+            'html_url': 'https://github.com/test/repo/pull/1',
+            'state': 'closed',
+            'merged_at': datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'draft': False,
+            'labels': [],
+            'additions': 100,
+            'deletions': 50
+        }
+
+        def mock_get_paginated(url, params=None, should_continue=None):
+            # Call should_continue if provided
+            if should_continue:
+                should_continue([merged_pr])
+            return [merged_pr]
+
+        mock_analyzer.get_paginated = Mock(side_effect=mock_get_paginated)
+        mock_analyzer._analyze_pr = Mock()
+
+        mock_analyzer.analyze_repository('test/repo', months=3)
+
+        assert 'test/repo' in mock_analyzer.repositories
+        assert mock_analyzer._analyze_pr.called
+
+    def test_analyze_repository_filters_old_prs(self, mock_analyzer, capsys):
+        """Test that old PRs are filtered out."""
+        old_date = (datetime.now() - timedelta(days=200)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        old_pr = {
+            'number': 1,
+            'user': {'login': 'other_user'},
+            'title': 'Old PR',
+            'html_url': 'https://github.com/test/repo/pull/1',
+            'state': 'closed',
+            'merged_at': old_date,
+            'draft': False,
+            'labels': []
+        }
+
+        def mock_get_paginated(url, params=None, should_continue=None):
+            if should_continue:
+                should_continue([old_pr])
+            return [old_pr]
+
+        mock_analyzer.get_paginated = Mock(side_effect=mock_get_paginated)
+        mock_analyzer._analyze_pr = Mock()
+
+        mock_analyzer.analyze_repository('test/repo', months=3)
+
+        # Should not analyze old PR
+        assert not mock_analyzer._analyze_pr.called
+
+    def test_analyze_repository_includes_open_prs(self, mock_analyzer):
+        """Test that open PRs are included."""
+        open_pr = {
+            'number': 1,
+            'user': {'login': 'other_user'},
+            'title': 'Open PR',
+            'html_url': 'https://github.com/test/repo/pull/1',
+            'state': 'open',
+            'draft': False,
+            'labels': []
+        }
+
+        def mock_get_paginated(url, params=None, should_continue=None, use_cache=True):
+            if params and params.get('state') == 'open':
+                return [open_pr]
+            return []
+
+        mock_analyzer.get_paginated = Mock(side_effect=mock_get_paginated)
+        mock_analyzer._analyze_pr = Mock()
+
+        mock_analyzer.analyze_repository('test/repo', months=3)
+
+        assert mock_analyzer._analyze_pr.called
+
+    def test_analyze_repository_filters_drafts(self, mock_analyzer):
+        """Test that draft PRs are filtered."""
+        draft_pr = {
+            'number': 1,
+            'user': {'login': 'other_user'},
+            'title': 'Draft PR',
+            'html_url': 'https://github.com/test/repo/pull/1',
+            'state': 'open',
+            'draft': True,
+            'labels': []
+        }
+
+        mock_analyzer.get_paginated = Mock(return_value=[draft_pr])
+        mock_analyzer._analyze_pr = Mock()
+
+        mock_analyzer.analyze_repository('test/repo', months=3)
+
+        assert not mock_analyzer._analyze_pr.called
+
+    def test_analyze_repository_filters_by_label(self, mock_analyzer, capsys):
+        """Test that PRs without required label are filtered."""
+        mock_analyzer.required_pr_label = 'ready-for-review'
+
+        pr_without_label = {
+            'number': 1,
+            'user': {'login': 'other_user'},
+            'title': 'PR without label',
+            'html_url': 'https://github.com/test/repo/pull/1',
+            'state': 'open',
+            'draft': False,
+            'labels': [{'name': 'bug'}]
+        }
+
+        pr_with_label = {
+            'number': 2,
+            'user': {'login': 'other_user'},
+            'title': 'PR with label',
+            'html_url': 'https://github.com/test/repo/pull/2',
+            'state': 'open',
+            'draft': False,
+            'labels': [{'name': 'ready-for-review'}, {'name': 'bug'}]
+        }
+
+        def mock_get_paginated(url, params=None, should_continue=None, use_cache=True):
+            if should_continue:
+                should_continue([pr_without_label, pr_with_label])
+            return [pr_without_label, pr_with_label]
+
+        mock_analyzer.get_paginated = Mock(side_effect=mock_get_paginated)
+        mock_analyzer._analyze_pr = Mock()
+
+        # Suppress print output
+        with patch('builtins.print'):
+            mock_analyzer.analyze_repository('test/repo', months=3)
+
+        # Should only analyze PR with label
+        assert mock_analyzer._analyze_pr.call_count == 1
+
+
+class TestAnalyzePRMethodFull:
+    """Comprehensive tests for _analyze_pr method."""
+
+    @pytest.fixture
+    def mock_analyzer(self):
+        """Create analyzer with mocked session."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', token='test_token', use_cache=False)
+        analyzer.session = Mock()
+        return analyzer
+
+    def test_analyze_pr_i_reviewed(self, mock_analyzer):
+        """Test analyzing PR that I reviewed."""
+        pr = {
+            'number': 1,
+            'user': {'login': 'alice'},
+            'title': 'Test PR',
+            'html_url': 'https://github.com/test/repo/pull/1',
+            'state': 'closed',
+            'additions': 100,
+            'deletions': 50
+        }
+
+        # Mock PR details response
+        pr_details_response = Mock()
+        pr_details_response.status_code = 200
+        pr_details_response.json.return_value = {
+            'additions': 100,
+            'deletions': 50,
+            'state': 'closed'
+        }
+
+        # Mock reviews - I reviewed this PR
+        my_review = {
+            'id': 1,
+            'user': {'login': 'test_user'},
+            'state': 'APPROVED'
+        }
+
+        mock_analyzer.session.get.return_value = pr_details_response
+        mock_analyzer.get_paginated = Mock(side_effect=lambda url, use_cache=True:
+            [my_review] if 'reviews' in url else []
+        )
+
+        mock_analyzer._analyze_pr('test/repo', pr)
+
+        # Check that stats were updated
+        assert 'alice' in mock_analyzer.reviewed_by_me
+        assert mock_analyzer.reviewed_by_me['alice'].prs_reviewed == 1
+        assert mock_analyzer.reviewed_by_me['alice'].lines_reviewed == 150
+
+    def test_analyze_pr_others_reviewed_mine(self, mock_analyzer):
+        """Test analyzing my PR that others reviewed."""
+        pr = {
+            'number': 1,
+            'user': {'login': 'test_user'},  # My PR
+            'title': 'My PR',
+            'html_url': 'https://github.com/test/repo/pull/1',
+            'state': 'closed',
+            'additions': 200,
+            'deletions': 100
+        }
+
+        # Mock PR details response
+        pr_details_response = Mock()
+        pr_details_response.status_code = 200
+        pr_details_response.json.return_value = {
+            'additions': 200,
+            'deletions': 100,
+            'state': 'closed'
+        }
+
+        # Mock reviews - bob reviewed my PR
+        bob_review = {
+            'id': 1,
+            'user': {'login': 'bob'},
+            'state': 'APPROVED'
+        }
+
+        # Mock comments - charlie commented
+        charlie_comment = {
+            'id': 1,
+            'user': {'login': 'charlie'}
+        }
+
+        def mock_get_paginated(url, use_cache=True):
+            if 'reviews' in url:
+                return [bob_review]
+            elif 'comments' in url:
+                return [charlie_comment]
+            return []
+
+        mock_analyzer.session.get.return_value = pr_details_response
+        mock_analyzer.get_paginated = Mock(side_effect=mock_get_paginated)
+
+        mock_analyzer._analyze_pr('test/repo', pr)
+
+        # Check that stats were updated for both reviewers
+        assert 'bob' in mock_analyzer.reviewed_by_others
+        assert mock_analyzer.reviewed_by_others['bob'].prs_reviewed == 1
+        assert mock_analyzer.reviewed_by_others['bob'].review_events == 1
+
+        assert 'charlie' in mock_analyzer.reviewed_by_others
+        assert mock_analyzer.reviewed_by_others['charlie'].comments == 1
+
+    def test_analyze_pr_no_reviews(self, mock_analyzer):
+        """Test analyzing PR with no reviews."""
+        pr = {
+            'number': 1,
+            'user': {'login': 'alice'},
+            'title': 'Test PR',
+            'html_url': 'https://github.com/test/repo/pull/1',
+            'state': 'open',
+            'additions': 50,
+            'deletions': 25
+        }
+
+        pr_details_response = Mock()
+        pr_details_response.status_code = 200
+        pr_details_response.json.return_value = {
+            'additions': 50,
+            'deletions': 25,
+            'state': 'open'
+        }
+
+        mock_analyzer.session.get.return_value = pr_details_response
+        mock_analyzer.get_paginated = Mock(return_value=[])
+
+        mock_analyzer._analyze_pr('test/repo', pr)
+
+        # No stats should be updated
+        assert len(mock_analyzer.reviewed_by_me) == 0
+        assert len(mock_analyzer.reviewed_by_others) == 0
+
+    def test_analyze_pr_excludes_self_reviews(self, mock_analyzer):
+        """Test that self-reviews are excluded."""
+        pr = {
+            'number': 1,
+            'user': {'login': 'alice'},
+            'title': 'Test PR',
+            'html_url': 'https://github.com/test/repo/pull/1',
+            'state': 'open',
+            'additions': 50,
+            'deletions': 25
+        }
+
+        pr_details_response = Mock()
+        pr_details_response.status_code = 200
+        pr_details_response.json.return_value = {
+            'additions': 50,
+            'deletions': 25,
+            'state': 'open'
+        }
+
+        # Alice reviews her own PR (should be ignored)
+        alice_self_review = {
+            'id': 1,
+            'user': {'login': 'alice'},
+            'state': 'APPROVED'
+        }
+
+        mock_analyzer.session.get.return_value = pr_details_response
+        mock_analyzer.get_paginated = Mock(return_value=[alice_self_review])
+
+        mock_analyzer._analyze_pr('test/repo', pr)
+
+        # No reviews should be counted
+        assert len(mock_analyzer.reviewed_by_me) == 0
+
+    def test_analyze_pr_error_handling(self, mock_analyzer):
+        """Test error handling when fetching PR details fails."""
+        pr = {
+            'number': 1,
+            'user': {'login': 'alice'},
+            'title': 'Test PR',
+            'html_url': 'https://github.com/test/repo/pull/1',
+            'state': 'open',
+            'additions': 50,
+            'deletions': 25
+        }
+
+        # Mock failed PR details fetch
+        pr_details_response = Mock()
+        pr_details_response.status_code = 404
+        pr_details_response.raise_for_status.side_effect = requests.exceptions.HTTPError("404 Not Found")
+
+        mock_analyzer.session.get.return_value = pr_details_response
+        mock_analyzer.get_paginated = Mock(return_value=[])
+
+        # Should handle error gracefully and use PR list data
+        mock_analyzer._analyze_pr('test/repo', pr)
+
+        # Should not crash
+
+
+class TestGetOpenPRsNeedingReview:
+    """Test cases for get_open_prs_needing_review method."""
+
+    @pytest.fixture
+    def mock_analyzer(self):
+        """Create analyzer with mocked session."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', token='test_token', use_cache=False)
+        analyzer.repositories = ['test/repo']
+        analyzer.session = Mock()
+        return analyzer
+
+    def test_get_open_prs_needing_review(self, mock_analyzer):
+        """Test getting open PRs that need review."""
+        open_pr = {
+            'number': 1,
+            'user': {'login': 'alice'},
+            'title': 'Open PR',
+            'html_url': 'https://github.com/test/repo/pull/1',
+            'state': 'open',
+            'draft': False,
+            'labels': [],
+            'created_at': '2025-01-15T10:00:00Z',
+            'updated_at': '2025-01-16T10:00:00Z'
+        }
+
+        pr_details_response = Mock()
+        pr_details_response.status_code = 200
+        pr_details_response.json.return_value = {
+            'additions': 100,
+            'deletions': 50
+        }
+
+        def mock_get_paginated(url, params=None, use_cache=True):
+            if 'pulls?' in url or 'pulls' in url and not 'reviews' in url and not 'comments' in url:
+                return [open_pr]
+            return []  # No reviews/comments from me
+
+        mock_analyzer.session.get.return_value = pr_details_response
+        mock_analyzer.get_paginated = Mock(side_effect=mock_get_paginated)
+
+        result = mock_analyzer.get_open_prs_needing_review()
+
+        assert 'alice' in result
+        assert len(result['alice']) == 1
+        assert result['alice'][0]['number'] == 1
+        assert result['alice'][0]['additions'] == 100
+        assert result['alice'][0]['deletions'] == 50
+
+    def test_get_open_prs_excludes_my_prs(self, mock_analyzer):
+        """Test that my own PRs are excluded."""
+        my_pr = {
+            'number': 1,
+            'user': {'login': 'test_user'},
+            'title': 'My PR',
+            'html_url': 'https://github.com/test/repo/pull/1',
+            'state': 'open',
+            'draft': False,
+            'labels': []
+        }
+
+        mock_analyzer.get_paginated = Mock(return_value=[my_pr])
+
+        result = mock_analyzer.get_open_prs_needing_review()
+
+        assert len(result) == 0
+
+    def test_get_open_prs_excludes_already_reviewed(self, mock_analyzer):
+        """Test that PRs I already reviewed are excluded."""
+        pr = {
+            'number': 1,
+            'user': {'login': 'alice'},
+            'title': 'PR',
+            'html_url': 'https://github.com/test/repo/pull/1',
+            'state': 'open',
+            'draft': False,
+            'labels': []
+        }
+
+        my_review = {
+            'id': 1,
+            'user': {'login': 'test_user'}
+        }
+
+        pr_details_response = Mock()
+        pr_details_response.status_code = 200
+        pr_details_response.json.return_value = {'additions': 100, 'deletions': 50}
+
+        def mock_get_paginated(url, params=None, use_cache=True):
+            if 'pulls?' in url or ('pulls' in url and 'reviews' not in url and 'comments' not in url):
+                return [pr]
+            elif 'reviews' in url:
+                return [my_review]
+            return []
+
+        mock_analyzer.session.get.return_value = pr_details_response
+        mock_analyzer.get_paginated = Mock(side_effect=mock_get_paginated)
+
+        result = mock_analyzer.get_open_prs_needing_review()
+
+        # Should be empty because I already reviewed it
+        assert len(result) == 0
+
+    def test_get_open_prs_excludes_drafts(self, mock_analyzer):
+        """Test that draft PRs are excluded."""
+        draft_pr = {
+            'number': 1,
+            'user': {'login': 'alice'},
+            'title': 'Draft',
+            'html_url': 'https://github.com/test/repo/pull/1',
+            'state': 'open',
+            'draft': True,
+            'labels': []
+        }
+
+        mock_analyzer.get_paginated = Mock(return_value=[draft_pr])
+
+        result = mock_analyzer.get_open_prs_needing_review()
+
+        assert len(result) == 0
+
+
+class TestPrintSummary:
+    """Test cases for print_summary method."""
+
+    @pytest.fixture
+    def analyzer_with_data(self):
+        """Create analyzer with test data."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', use_cache=False)
+
+        # Add review data
+        analyzer.reviewed_by_me['alice'].prs_reviewed = 2
+        analyzer.reviewed_by_me['alice'].lines_reviewed = 200
+        analyzer.reviewed_by_me['alice'].additions_reviewed = 150
+        analyzer.reviewed_by_me['alice'].deletions_reviewed = 50
+        analyzer.reviewed_by_me['alice'].prs.append({
+            'number': 1,
+            'title': 'PR 1',
+            'url': 'https://github.com/test/repo/pull/1',
+            'additions': 75,
+            'deletions': 25,
+            'lines': 100
+        })
+
+        analyzer.reviewed_by_others['bob'].prs_reviewed = 3
+        analyzer.reviewed_by_others['bob'].lines_reviewed = 300
+        analyzer.reviewed_by_others['bob'].additions_reviewed = 250
+        analyzer.reviewed_by_others['bob'].deletions_reviewed = 50
+
+        analyzer.repositories = ['test/repo']
+
+        return analyzer
+
+    def test_print_summary_with_data(self, analyzer_with_data, capsys):
+        """Test print_summary with data."""
+        # Mock get_open_prs_needing_review to return empty
+        analyzer_with_data.get_open_prs_needing_review = Mock(return_value={})
+
+        analyzer_with_data.print_summary()
+
+        captured = capsys.readouterr()
+        assert 'REVIEW SUMMARY FOR test_user' in captured.out
+        assert 'alice' in captured.out or 'bob' in captured.out
+
+    def test_print_summary_no_data(self, capsys):
+        """Test print_summary with no data."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', use_cache=False)
+
+        analyzer.print_summary()
+
+        captured = capsys.readouterr()
+        assert 'No review activity found' in captured.out
+
+    def test_print_summary_with_open_prs(self, analyzer_with_data, capsys):
+        """Test print_summary with open PRs."""
+        open_prs = {
+            'alice': [{
+                'number': 2,
+                'title': 'Open PR',
+                'url': 'https://github.com/test/repo/pull/2',
+                'repo': 'test/repo',
+                'additions': 100,
+                'deletions': 50,
+                'created_at': '2025-01-15T10:00:00Z',
+                'updated_at': '2025-01-16T10:00:00Z'
+            }]
+        }
+
+        analyzer_with_data.get_open_prs_needing_review = Mock(return_value=open_prs)
+
+        analyzer_with_data.print_summary()
+
+        captured = capsys.readouterr()
+        assert 'OPEN PRs THAT NEED YOUR REVIEW' in captured.out
+
+
+class TestMainFunction:
+    """Test cases for main() function."""
+
+    def test_main_with_environment_variables(self):
+        """Test main with environment variables."""
+        with patch.dict(os.environ, {
+            'GITHUB_USERNAME': 'test_user',
+            'GITHUB_TOKEN': 'test_token',
+            'GITHUB_REPOS': 'test/repo1,test/repo2',
+            'ANALYSIS_MONTHS': '6',
+            'USE_CACHE': 'false',
+            'EXCLUDED_USERS': 'bot1,bot2',
+            'REQUIRED_PR_LABEL': 'ready',
+            'SORT_BY': 'balance'
+        }):
+            with patch.object(GitHubReviewAnalyzer, 'analyze_repository'):
+                with patch.object(GitHubReviewAnalyzer, '_save_cache'):
+                    with patch.object(GitHubReviewAnalyzer, 'print_summary'):
+                        github_review_analyzer.main()
+
+    def test_main_missing_username(self):
+        """Test main exits when username is missing."""
+        with patch('github_review_analyzer.load_dotenv'):  # Prevent loading .env
+            with patch.dict(os.environ, {}, clear=True):
+                with patch('builtins.input', return_value=''):
+                    with patch('builtins.print'):  # Suppress print output
+                        with pytest.raises(SystemExit) as exc_info:
+                            github_review_analyzer.main()
+                        assert exc_info.value.code == 1
+
+    def test_main_missing_repos(self):
+        """Test main exits when no repos provided."""
+        with patch('github_review_analyzer.load_dotenv'):  # Prevent loading .env
+            with patch.dict(os.environ, {'GITHUB_USERNAME': 'test_user'}, clear=True):
+                with patch('builtins.input', side_effect=['', '']):  # No token, no repos
+                    with patch('builtins.print'):  # Suppress print output
+                        with pytest.raises(SystemExit) as exc_info:
+                            github_review_analyzer.main()
+                        assert exc_info.value.code == 1
+
+    def test_main_with_invalid_months(self):
+        """Test main handles invalid ANALYSIS_MONTHS."""
+        with patch.dict(os.environ, {
+            'GITHUB_USERNAME': 'test_user',
+            'GITHUB_REPOS': 'test/repo',
+            'ANALYSIS_MONTHS': 'invalid'
+        }):
+            with patch.object(GitHubReviewAnalyzer, 'analyze_repository'):
+                with patch.object(GitHubReviewAnalyzer, '_save_cache'):
+                    with patch.object(GitHubReviewAnalyzer, 'print_summary'):
+                        # Should use default of 3 months
+                        github_review_analyzer.main()
+
+    def test_main_repository_error_handling(self):
+        """Test that main continues after repository error."""
+        with patch.dict(os.environ, {
+            'GITHUB_USERNAME': 'test_user',
+            'GITHUB_REPOS': 'test/repo1,test/repo2'
+        }):
+            with patch.object(GitHubReviewAnalyzer, 'analyze_repository', side_effect=[Exception('Error'), None]):
+                with patch.object(GitHubReviewAnalyzer, '_save_cache'):
+                    with patch.object(GitHubReviewAnalyzer, 'print_summary'):
+                        # Should not crash, should continue to next repo
+                        github_review_analyzer.main()
+
+
+class TestCacheEdgeCases:
+    """Additional tests for cache edge cases."""
+
+    def test_save_cache_exception_handling(self):
+        """Test that _save_cache handles exceptions gracefully."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', cache_file='/invalid/path/cache.json', use_cache=True)
+        analyzer.cache = {'test': 'data'}
+
+        # Should not crash
+        analyzer._save_cache()
+
+    def test_put_in_cache_when_disabled(self):
+        """Test that _put_in_cache does nothing when cache is disabled."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', use_cache=False)
+
+        analyzer._put_in_cache('key', [{'data': 'test'}])
+
+        # Cache should still be empty
+        assert len(analyzer.cache) == 0
+
+    def test_get_paginated_uses_cache(self):
+        """Test that get_paginated uses cache when available."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', use_cache=True)
+
+        # Put data in cache
+        test_data = [{'id': 1}, {'id': 2}]
+        cache_key = analyzer._get_cache_key('', 'https://api.github.com/test', {})
+        analyzer._put_in_cache(cache_key, test_data)
+
+        # Mock session to ensure it's not called
+        analyzer.session = Mock()
+
+        # Fetch data - should come from cache
+        result = analyzer.get_paginated('https://api.github.com/test', use_cache=True)
+
+        assert result == test_data
+        assert not analyzer.session.get.called
+
+    def test_get_paginated_saves_to_cache(self):
+        """Test that get_paginated saves data to cache."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', use_cache=True)
+
+        # Mock session
+        mock_session = Mock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = [{'id': 1}]
+        mock_session.get.return_value = mock_response
+        analyzer.session = mock_session
+
+        result = analyzer.get_paginated('https://api.github.com/test', use_cache=True)
+
+        # Check cache was populated
+        cache_key = analyzer._get_cache_key('', 'https://api.github.com/test', {})
+        assert cache_key in analyzer.cache
+        assert analyzer.cache[cache_key]['data'] == [{'id': 1}]
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

@@ -254,12 +254,20 @@ class GitHubReviewAnalyzer:
             total_fetched += len(prs)
             print(f" fetched {len(prs)} PRs ({page_count[0]} pages)")
 
+        # Deduplicate PRs by number (can have duplicates from open/closed fetches)
+        seen_pr_numbers = set()
+        deduplicated_prs = []
+        for pr in all_prs:
+            if pr['number'] not in seen_pr_numbers:
+                seen_pr_numbers.add(pr['number'])
+                deduplicated_prs.append(pr)
+
         # Filter PRs by merge date (or include open PRs), draft status, and labels
         recent_prs = []
         filtered_draft = 0
         filtered_label = 0
 
-        for pr in all_prs:
+        for pr in deduplicated_prs:
             # First check if PR is in our date range
             if pr['state'] == 'open':
                 # Include all open PRs as they're currently under review
