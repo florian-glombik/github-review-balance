@@ -271,7 +271,10 @@ If you notice missing review data, ensure:
 - The PRs were created within the specified time range
 
 ## Testing
-### Running Tests
+
+For comprehensive testing instructions, see the [Testing Guide](TESTING.md).
+
+### Quick Start
 
 1. Install development dependencies:
    ```bash
@@ -280,10 +283,10 @@ If you notice missing review data, ensure:
 
 2. Run all tests:
    ```bash
-   pytest test_github_review_analyzer.py -v
+   pytest tests/ -v
    ```
 
 3. Run tests with coverage report:
    ```bash
-   pytest test_github_review_analyzer.py --cov=github_review_analyzer --cov-report=term-missing
+   pytest tests/ --cov=src --cov-report=term-missing
    ```

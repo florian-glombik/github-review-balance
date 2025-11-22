@@ -1,0 +1,636 @@
+"""Main GitHub PR review analyzer."""
+
+import logging
+from datetime import datetime, timedelta
+from collections import defaultdict
+from typing import Dict, List, Set, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
+
+from .models import ReviewStats
+from .api_client import GitHubAPIClient
+from .cache import CacheManager
+from .file_filters import FileFilter
+
+
+class GitHubReviewAnalyzer:
+    """Analyzes GitHub PR reviews for a given user across repositories."""
+
+    def __init__(
+        self,
+        username: str,
+        token: str = None,
+        cache_file: str = '.github_review_cache.json',
+        use_cache: bool = True,
+        excluded_users: Set[str] = None,
+        required_pr_label: str = None,
+        sort_by: str = 'total_prs',
+        exclude_generated_files: bool = False,
+        excluded_file_patterns: List[str] = None
+    ):
+        """Initialize the analyzer.
+
+        Args:
+            username: GitHub username to analyze
+            token: GitHub personal access token
+            cache_file: Path to cache file
+            use_cache: Whether to use caching
+            excluded_users: Set of usernames to exclude from analysis
+            required_pr_label: Only analyze PRs with this label
+            sort_by: Column to sort results by
+            exclude_generated_files: Whether to exclude generated files from line counts
+            excluded_file_patterns: Custom file patterns to exclude
+        """
+        self.username = username
+        self.api_client = GitHubAPIClient(token)
+        self.cache_manager = CacheManager(cache_file, use_cache)
+        self.excluded_users = excluded_users or set()
+        self.required_pr_label = required_pr_label
+        self.sort_by = sort_by
+        self.exclude_generated_files = exclude_generated_files
+        self.file_filter = FileFilter(excluded_file_patterns)
+
+        logging.info(f"Initialized analyzer for user '{username}'")
+
+        # Statistics: user -> ReviewStats
+        self.reviewed_by_me: Dict[str, ReviewStats] = defaultdict(ReviewStats)
+        self.reviewed_by_others: Dict[str, ReviewStats] = defaultdict(ReviewStats)
+
+        # Store repositories for later use
+        self.repositories: List[str] = []
+
+        # Thread safety for parallel processing
+        self._stats_lock = Lock()
+
+    # Convenience properties for backward compatibility with tests
+    @property
+    def token(self):
+        return self.api_client.token
+
+    @property
+    def session(self):
+        return self.api_client.session
+
+    @session.setter
+    def session(self, value):
+        self.api_client.session = value
+
+    @property
+    def use_cache(self):
+        return self.cache_manager.use_cache
+
+    @property
+    def cache(self):
+        return self.cache_manager.cache
+
+    @cache.setter
+    def cache(self, value):
+        self.cache_manager.cache = value
+
+    def _get_cache_key(self, repo: str, endpoint: str, params: Dict = None) -> str:
+        """Generate a cache key - convenience wrapper for tests."""
+        return self.cache_manager.get_cache_key(repo, endpoint, params)
+
+    def _put_in_cache(self, cache_key: str, data: List[Dict]):
+        """Put data in cache - convenience wrapper for tests."""
+        self.cache_manager.put(cache_key, data)
+
+    def _get_from_cache(self, cache_key: str) -> Optional[List[Dict]]:
+        """Get data from cache - convenience wrapper for tests."""
+        return self.cache_manager.get(cache_key)
+
+    def _save_cache(self):
+        """Save cache - convenience wrapper for tests."""
+        self.cache_manager.save_cache()
+
+    def get_paginated(self, url: str, params: Dict = None, use_cache: bool = True,
+                     should_continue=None) -> List[Dict]:
+        """Wrapper for API client's get_paginated - convenience for tests."""
+        return self._get_paginated(url, params, use_cache, should_continue)
+
+    def print_summary(self):
+        """Print summary using the output formatter."""
+        open_prs_by_author = self.get_open_prs_needing_review()
+        from .output import OutputFormatter
+        output_formatter = OutputFormatter(self.username, self.sort_by)
+        output_formatter.print_summary(
+            self.reviewed_by_me,
+            self.reviewed_by_others,
+            open_prs_by_author
+        )
+
+    def _get_paginated(self, url: str, params: Dict = None, use_cache: bool = True,
+                       should_continue=None) -> List[Dict]:
+        """Fetch all pages of a paginated GitHub API endpoint with caching support.
+
+        Args:
+            url: The API endpoint URL
+            params: Query parameters
+            use_cache: Whether to use caching
+            should_continue: Optional callback function
+
+        Returns:
+            List of all items from all pages
+        """
+        # Generate cache key
+        cache_params = params.copy() if params else {}
+        cache_params.pop('page', None)
+        cache_params.pop('per_page', None)
+        cache_key = self.cache_manager.get_cache_key('', url, cache_params)
+
+        # Try to get from cache
+        if use_cache:
+            cached_data = self.cache_manager.get(cache_key)
+            if cached_data is not None:
+                logging.debug(f"Cache hit for {url}")
+                return cached_data
+
+        # Fetch from API
+        results = self.api_client.get_paginated(url, params, should_continue)
+
+        # Store in cache
+        if use_cache:
+            self.cache_manager.put(cache_key, results)
+
+        return results
+
+    def _get_filtered_line_counts(self, repo: str, pr_number: int, should_cache: bool) -> Dict[str, int]:
+        """Fetch PR files and calculate filtered line counts excluding generated files.
+
+        Args:
+            repo: Repository name
+            pr_number: PR number
+            should_cache: Whether to cache the results
+
+        Returns:
+            Dictionary with 'additions' and 'deletions' counts, or None if filtering is disabled
+        """
+        if not self.exclude_generated_files:
+            return None
+
+        # Create cache key for this PR's filtered line counts
+        cache_key = f"filtered_lines:{repo}:{pr_number}"
+
+        # Try to get from cache
+        if should_cache and cache_key in self.cache_manager:
+            cached_data = self.cache_manager.cache[cache_key]
+            logging.debug(f"Using cached filtered line counts for PR #{pr_number}")
+            return cached_data['data']
+
+        # Fetch files from API
+        files_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/files"
+
+        try:
+            files = self._get_paginated(files_url, use_cache=False)
+            result = self.file_filter.calculate_filtered_line_counts(files)
+
+            # Log the PR number with the result
+            logging.info(f"PR #{pr_number}: Filtered line counts: +{result['additions']:,}/-{result['deletions']:,}")
+
+            # Cache only the filtered counts
+            if should_cache:
+                self.cache_manager.cache[cache_key] = {
+                    'timestamp': datetime.now().isoformat(),
+                    'data': result
+                }
+
+            return result
+
+        except Exception as e:
+            logging.warning(f"Error fetching files for PR #{pr_number}: {e}")
+            return None
+
+    def analyze_repository(self, repo: str, months: int = 3):
+        """Analyze PRs in a repository for the last N months based on merge date.
+
+        Args:
+            repo: Repository name in format 'owner/repo'
+            months: Number of months to analyze
+        """
+        logging.info(f"Analyzing repository: {repo}")
+
+        # Store repository for later use
+        if repo not in self.repositories:
+            self.repositories.append(repo)
+
+        since_date = datetime.now() - timedelta(days=months * 30)
+        logging.info(f"Looking for PRs merged since: {since_date.strftime('%Y-%m-%d')}")
+
+        # Fetch PRs
+        url = f"https://api.github.com/repos/{repo}/pulls"
+
+        print(f"Fetching pull requests from {repo}...")
+        all_prs = []
+        total_fetched = 0
+
+        # Fetch both open and closed PRs
+        for state in ['open', 'closed']:
+            print(f"  Fetching {state} PRs...", end='', flush=True)
+            page_count = [0]
+
+            def count_pages(page_data: List[Dict]) -> bool:
+                page_count[0] += 1
+                return True
+
+            prs = self._get_paginated(url, {
+                'state': state,
+                'sort': 'updated',
+                'direction': 'desc'
+            }, should_continue=count_pages)
+
+            all_prs.extend(prs)
+            total_fetched += len(prs)
+            print(f" fetched {len(prs)} PRs ({page_count[0]} pages)")
+
+        # Filter PRs
+        recent_prs = self._filter_prs(all_prs, since_date)
+
+        filter_msg = f"Found {len(recent_prs)} PRs in the last {months} months (filtered from {total_fetched} fetched)"
+        print(filter_msg)
+
+        if not recent_prs:
+            logging.info(f"No PRs found for repository: {repo}")
+            return
+
+        # Process PRs in parallel
+        self._process_prs_parallel(repo, recent_prs)
+
+        print(f"Completed analysis of {repo}")
+        logging.info(f"Completed analysis of repository: {repo}")
+
+    def _filter_prs(self, all_prs: List[Dict], since_date: datetime) -> List[Dict]:
+        """Filter PRs by date, draft status, and labels.
+
+        Args:
+            all_prs: List of all PRs
+            since_date: Only include PRs merged after this date
+
+        Returns:
+            Filtered list of PRs
+        """
+        # Deduplicate PRs by number
+        seen_pr_numbers = set()
+        deduplicated_prs = []
+        for pr in all_prs:
+            if pr['number'] not in seen_pr_numbers:
+                seen_pr_numbers.add(pr['number'])
+                deduplicated_prs.append(pr)
+
+        recent_prs = []
+        for pr in deduplicated_prs:
+            # Check date range
+            if pr['state'] == 'open':
+                pass  # Include all open PRs
+            elif pr.get('merged_at'):
+                merged_date = datetime.strptime(pr['merged_at'], '%Y-%m-%dT%H:%M:%SZ')
+                if merged_date < since_date:
+                    continue
+            else:
+                continue  # Skip closed but not merged
+
+            # Skip draft PRs
+            if pr.get('draft', False):
+                logging.debug(f"Skipping draft PR #{pr['number']}")
+                continue
+
+            # Check for required label
+            if self.required_pr_label:
+                pr_labels = [label['name'] for label in pr.get('labels', [])]
+                if self.required_pr_label not in pr_labels:
+                    logging.debug(f"Skipping PR #{pr['number']} - missing required label '{self.required_pr_label}'")
+                    continue
+
+            recent_prs.append(pr)
+
+        return recent_prs
+
+    def _process_prs_parallel(self, repo: str, prs: List[Dict]):
+        """Process PRs in parallel.
+
+        Args:
+            repo: Repository name
+            prs: List of PRs to process
+        """
+        print(f"Analyzing {len(prs)} PRs...")
+        completed = 0
+        max_workers = min(10, len(prs))
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_pr = {
+                executor.submit(self._analyze_pr, repo, pr): pr
+                for pr in prs
+            }
+
+            for future in as_completed(future_to_pr):
+                pr = future_to_pr[future]
+                try:
+                    future.result()
+                    completed += 1
+
+                    if completed % 10 == 0 or completed == len(prs):
+                        print(f"  Progress: {completed}/{len(prs)} PRs analyzed", flush=True)
+
+                except Exception as e:
+                    logging.error(f"Error analyzing PR #{pr['number']}: {e}", exc_info=True)
+                    completed += 1
+
+    def _analyze_pr(self, repo: str, pr: Dict):
+        """Analyze a single PR for review activity.
+
+        Args:
+            repo: Repository name
+            pr: PR data from GitHub API
+        """
+        pr_number = pr['number']
+        pr_author = pr['user']['login']
+        pr_title = pr['title']
+        pr_url = pr['html_url']
+        pr_state = pr.get('state', 'open')
+
+        # Skip excluded users
+        if pr_author in self.excluded_users:
+            logging.debug(f"Skipping PR #{pr_number} by excluded user {pr_author}")
+            return
+
+        # Fetch PR details, reviews, and comments in parallel
+        pr_details_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
+        reviews_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews"
+        comments_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/comments"
+
+        # Only cache closed PRs
+        should_cache = (pr_state == 'closed')
+
+        additions, deletions, reviews, review_comments = self._fetch_pr_data(
+            pr, pr_details_url, reviews_url, comments_url, should_cache
+        )
+
+        # Apply file filtering if enabled
+        if self.exclude_generated_files:
+            filtered_counts = self._get_filtered_line_counts(repo, pr_number, should_cache)
+            if filtered_counts:
+                additions = filtered_counts['additions']
+                deletions = filtered_counts['deletions']
+
+        total_lines = additions + deletions
+
+        logging.debug(f"Analyzing PR #{pr_number}: {pr_title} (by {pr_author}, +{additions}/-{deletions} lines, state: {pr_state})")
+
+        # Track reviewer activity
+        reviewer_activity = self._track_reviewer_activity(reviews, review_comments, pr_author)
+
+        # Update stats
+        self._update_stats(pr_author, pr_number, pr_title, pr_url, total_lines,
+                          additions, deletions, reviews, review_comments, reviewer_activity)
+
+    def _fetch_pr_data(self, pr: Dict, pr_details_url: str, reviews_url: str,
+                       comments_url: str, should_cache: bool) -> tuple:
+        """Fetch PR details, reviews, and comments in parallel.
+
+        Returns:
+            Tuple of (additions, deletions, reviews, review_comments)
+        """
+        additions = pr.get('additions', 0)
+        deletions = pr.get('deletions', 0)
+        reviews = []
+        review_comments = []
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            future_details = executor.submit(self.api_client.get, pr_details_url)
+            future_reviews = executor.submit(self._get_paginated, reviews_url, use_cache=should_cache)
+            future_comments = executor.submit(self._get_paginated, comments_url, use_cache=should_cache)
+
+            # Get PR details
+            try:
+                pr_details_response = future_details.result()
+                if pr_details_response.status_code == 200:
+                    pr_details = pr_details_response.json()
+                    additions = pr_details.get('additions', 0)
+                    deletions = pr_details.get('deletions', 0)
+            except Exception as e:
+                logging.warning(f"Error fetching PR details: {e}")
+
+            # Get reviews and comments
+            try:
+                reviews = future_reviews.result()
+            except Exception as e:
+                logging.warning(f"Error fetching reviews: {e}")
+
+            try:
+                review_comments = future_comments.result()
+            except Exception as e:
+                logging.warning(f"Error fetching comments: {e}")
+
+        return additions, deletions, reviews, review_comments
+
+    def _track_reviewer_activity(self, reviews: List[Dict], review_comments: List[Dict],
+                                 pr_author: str) -> Dict:
+        """Track unique reviewers and their activity.
+
+        Returns:
+            Dictionary mapping reviewer names to their activity
+        """
+        reviewer_activity = defaultdict(lambda: {
+            'review_events': 0,
+            'comments': 0,
+            'reviews': set()
+        })
+
+        # Process reviews
+        for review in reviews:
+            reviewer = review['user']['login']
+            review_id = review['id']
+
+            if reviewer == self.username or reviewer == pr_author or reviewer in self.excluded_users:
+                continue
+
+            reviewer_activity[reviewer]['reviews'].add(review_id)
+            reviewer_activity[reviewer]['review_events'] += 1
+
+        # Process review comments
+        for comment in review_comments:
+            commenter = comment['user']['login']
+
+            if commenter == self.username or commenter == pr_author or commenter in self.excluded_users:
+                continue
+
+            reviewer_activity[commenter]['comments'] += 1
+
+        return reviewer_activity
+
+    def _update_stats(self, pr_author: str, pr_number: int, pr_title: str, pr_url: str,
+                     total_lines: int, additions: int, deletions: int,
+                     reviews: List[Dict], review_comments: List[Dict],
+                     reviewer_activity: Dict):
+        """Update statistics with thread safety.
+
+        Args:
+            pr_author: PR author username
+            pr_number: PR number
+            pr_title: PR title
+            pr_url: PR URL
+            total_lines: Total lines changed
+            additions: Lines added
+            deletions: Lines deleted
+            reviews: List of reviews
+            review_comments: List of review comments
+            reviewer_activity: Dictionary of reviewer activity
+        """
+        pr_info = {
+            'title': pr_title,
+            'url': pr_url,
+            'number': pr_number,
+            'lines': total_lines,
+            'additions': additions,
+            'deletions': deletions
+        }
+
+        with self._stats_lock:
+            if pr_author == self.username:
+                # Others reviewed my PR
+                for reviewer, activity in reviewer_activity.items():
+                    stats = self.reviewed_by_others[reviewer]
+                    stats.prs_reviewed += 1
+                    stats.lines_reviewed += total_lines
+                    stats.additions_reviewed += additions
+                    stats.deletions_reviewed += deletions
+                    stats.review_events += activity['review_events']
+                    stats.comments += activity['comments']
+                    stats.prs.append(pr_info)
+            else:
+                # I reviewed someone else's PR
+                my_reviews = [r for r in reviews if r['user']['login'] == self.username]
+                my_comments = [c for c in review_comments if c['user']['login'] == self.username]
+
+                if my_reviews or my_comments:
+                    stats = self.reviewed_by_me[pr_author]
+                    stats.prs_reviewed += 1
+                    stats.lines_reviewed += total_lines
+                    stats.additions_reviewed += additions
+                    stats.deletions_reviewed += deletions
+                    stats.review_events += len(my_reviews)
+                    stats.comments += len(my_comments)
+                    stats.prs.append(pr_info)
+
+    def get_open_prs_needing_review(self) -> Dict[str, List[Dict]]:
+        """Fetch open PRs from analyzed repositories that need review from the user.
+
+        Returns:
+            Dictionary mapping author names to lists of their open PRs
+        """
+        prs_by_author = defaultdict(list)
+
+        print("\nFetching currently open PRs...")
+        for repo in self.repositories:
+            url = f"https://api.github.com/repos/{repo}/pulls"
+
+            try:
+                open_prs = self._get_paginated(url, {
+                    'state': 'open',
+                    'sort': 'updated',
+                    'direction': 'desc'
+                }, use_cache=False)
+
+                for pr in open_prs:
+                    pr_author = pr['user']['login']
+
+                    # Skip my own PRs and excluded users
+                    if pr_author == self.username or pr_author in self.excluded_users:
+                        continue
+
+                    # Skip draft PRs
+                    if pr.get('draft', False):
+                        continue
+
+                    # Check for required label
+                    if self.required_pr_label:
+                        pr_labels = [label['name'] for label in pr.get('labels', [])]
+                        if self.required_pr_label not in pr_labels:
+                            continue
+
+                    # Check if I've already reviewed this PR
+                    if not self._has_reviewed_pr(repo, pr):
+                        prs_by_author[pr_author].append(self._create_pr_info(repo, pr))
+
+            except Exception as e:
+                logging.error(f"Error fetching open PRs from {repo}: {e}")
+
+        return prs_by_author
+
+    def _has_reviewed_pr(self, repo: str, pr: Dict) -> bool:
+        """Check if the user has already reviewed a PR.
+
+        Args:
+            repo: Repository name
+            pr: PR data
+
+        Returns:
+            True if the user has reviewed the PR, False otherwise
+        """
+        pr_number = pr['number']
+        reviews_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews"
+        comments_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/comments"
+
+        try:
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                future_reviews = executor.submit(self._get_paginated, reviews_url, use_cache=False)
+                future_comments = executor.submit(self._get_paginated, comments_url, use_cache=False)
+
+                reviews = future_reviews.result()
+                review_comments = future_comments.result()
+
+                my_reviews = [r for r in reviews if r['user']['login'] == self.username]
+                my_comments = [c for c in review_comments if c['user']['login'] == self.username]
+
+                return bool(my_reviews or my_comments)
+
+        except Exception as e:
+            logging.warning(f"Error checking reviews for PR #{pr_number}: {e}")
+            return False
+
+    def _create_pr_info(self, repo: str, pr: Dict) -> Dict:
+        """Create a PR info dictionary with line counts.
+
+        Args:
+            repo: Repository name
+            pr: PR data
+
+        Returns:
+            Dictionary with PR information
+        """
+        pr_number = pr['number']
+        pr_details_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
+
+        additions = 0
+        deletions = 0
+
+        try:
+            pr_details_response = self.api_client.get(pr_details_url)
+            if pr_details_response.status_code == 200:
+                pr_details = pr_details_response.json()
+                additions = pr_details.get('additions', 0)
+                deletions = pr_details.get('deletions', 0)
+
+                # Apply file filtering if enabled
+                if self.exclude_generated_files:
+                    filtered_counts = self._get_filtered_line_counts(repo, pr_number, should_cache=False)
+                    if filtered_counts:
+                        additions = filtered_counts['additions']
+                        deletions = filtered_counts['deletions']
+
+        except Exception as e:
+            logging.warning(f"Error fetching PR details for #{pr_number}: {e}")
+
+        return {
+            'number': pr_number,
+            'title': pr['title'],
+            'url': pr['html_url'],
+            'repo': repo,
+            'additions': additions,
+            'deletions': deletions,
+            'created_at': pr['created_at'],
+            'updated_at': pr['updated_at']
+        }
+
+    def save_cache(self):
+        """Save the cache to disk."""
+        self.cache_manager.save_cache()
