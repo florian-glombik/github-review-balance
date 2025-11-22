@@ -44,7 +44,33 @@ class ReviewStats:
 class GitHubReviewAnalyzer:
     """Analyzes GitHub PR reviews for a given user across repositories."""
 
-    def __init__(self, username: str, token: str = None, cache_file: str = '.github_review_cache.json', use_cache: bool = True, excluded_users: Set[str] = None, required_pr_label: str = None, sort_by: str = 'total_prs'):
+    # Default patterns for commonly generated files
+    DEFAULT_EXCLUDED_FILE_PATTERNS = [
+        'package-lock.json',
+        'yarn.lock',
+        'pnpm-lock.yaml',
+        'Gemfile.lock',
+        'Cargo.lock',
+        'composer.lock',
+        'poetry.lock',
+        'Pipfile.lock',
+        '*.min.js',
+        '*.min.css',
+        '*.bundle.js',
+        '*.bundle.css',
+        'dist/*',
+        'build/*',
+        'out/*',
+        'target/*',
+        '.next/*',
+        'coverage/*',
+        '*.generated.*',
+        '*.gen.*',
+        '*-lock.json',
+        '*.lock',
+    ]
+
+    def __init__(self, username: str, token: str = None, cache_file: str = '.github_review_cache.json', use_cache: bool = True, excluded_users: Set[str] = None, required_pr_label: str = None, sort_by: str = 'total_prs', exclude_generated_files: bool = False, excluded_file_patterns: List[str] = None):
         self.username = username
         self.token = token or os.environ.get('GITHUB_TOKEN')
         self.session = requests.Session()
@@ -54,6 +80,8 @@ class GitHubReviewAnalyzer:
         self.excluded_users = excluded_users or set()
         self.required_pr_label = required_pr_label
         self.sort_by = sort_by
+        self.exclude_generated_files = exclude_generated_files
+        self.excluded_file_patterns = excluded_file_patterns or self.DEFAULT_EXCLUDED_FILE_PATTERNS
 
         # Configure session with larger connection pool to handle concurrent requests
         # Pool size = 10 (outer workers) * 3 (inner workers per PR) = 30 + buffer
@@ -209,6 +237,85 @@ class GitHubReviewAnalyzer:
             self._put_in_cache(cache_key, results)
 
         return results
+
+    def _match_file_pattern(self, filename: str, pattern: str) -> bool:
+        """Check if a filename matches a pattern (supports * wildcards)."""
+        import fnmatch
+        return fnmatch.fnmatch(filename, pattern)
+
+    def _get_filtered_line_counts(self, repo: str, pr_number: int, should_cache: bool) -> Dict[str, int]:
+        """Fetch PR files and calculate filtered line counts excluding generated files.
+
+        Returns a dict with 'additions' and 'deletions' counts, or None if filtering is disabled.
+        Stores only the filtered counts in cache, not the full file list.
+        """
+        if not self.exclude_generated_files:
+            return None
+
+        # Create cache key for this PR's filtered line counts
+        cache_key = f"filtered_lines:{repo}:{pr_number}"
+
+        # Try to get from cache
+        if should_cache and cache_key in self.cache:
+            cached_data = self.cache[cache_key]
+            logging.debug(f"Using cached filtered line counts for PR #{pr_number}")
+            return cached_data['data']
+
+        # Fetch files from API
+        files_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/files"
+
+        try:
+            files = self.get_paginated(files_url, use_cache=False)  # Don't cache the full file list
+
+            total_additions = 0
+            total_deletions = 0
+            filtered_additions = 0
+            filtered_deletions = 0
+            excluded_files_count = 0
+
+            for file in files:
+                filename = file['filename']
+                additions = file.get('additions', 0)
+                deletions = file.get('deletions', 0)
+
+                total_additions += additions
+                total_deletions += deletions
+
+                # Check if file matches any excluded pattern
+                is_excluded = any(
+                    self._match_file_pattern(filename, pattern)
+                    for pattern in self.excluded_file_patterns
+                )
+
+                if is_excluded:
+                    excluded_files_count += 1
+                    logging.debug(f"Excluding file: {filename} (+{additions}/-{deletions})")
+                else:
+                    filtered_additions += additions
+                    filtered_deletions += deletions
+
+            if excluded_files_count > 0:
+                excluded_lines = (total_additions - filtered_additions) + (total_deletions - filtered_deletions)
+                logging.info(f"PR #{pr_number}: Excluded {excluded_files_count} generated file(s) "
+                           f"({excluded_lines:,} lines: +{total_additions - filtered_additions:,}/-{total_deletions - filtered_deletions:,})")
+
+            result = {
+                'additions': filtered_additions,
+                'deletions': filtered_deletions
+            }
+
+            # Cache only the filtered counts, not the full file list
+            if should_cache:
+                self.cache[cache_key] = {
+                    'timestamp': datetime.now().isoformat(),
+                    'data': result
+                }
+
+            return result
+
+        except Exception as e:
+            logging.warning(f"Error fetching files for PR #{pr_number}: {e}")
+            return None
 
     def analyze_repository(self, repo: str, months: int = 3):
         """Analyze PRs in a repository for the last N months based on merge date."""
@@ -394,6 +501,13 @@ class GitHubReviewAnalyzer:
             except Exception as e:
                 logging.warning(f"Error fetching comments for #{pr_number}: {e}")
 
+        # Apply file filtering if enabled
+        if self.exclude_generated_files:
+            filtered_counts = self._get_filtered_line_counts(repo, pr_number, should_cache)
+            if filtered_counts:
+                additions = filtered_counts['additions']
+                deletions = filtered_counts['deletions']
+
         total_lines = additions + deletions
 
         logging.debug(f"Analyzing PR #{pr_number}: {pr_title} (by {pr_author}, +{additions}/-{deletions} lines, state: {pr_state})")
@@ -526,6 +640,13 @@ class GitHubReviewAnalyzer:
                                     logging.warning(f"Failed to fetch PR details for #{pr_number}")
                             except Exception as e:
                                 logging.warning(f"Error fetching PR details for #{pr_number}: {e}")
+
+                            # Apply file filtering if enabled (open PRs are not cached)
+                            if self.exclude_generated_files:
+                                filtered_counts = self._get_filtered_line_counts(repo, pr_number, should_cache=False)
+                                if filtered_counts:
+                                    additions = filtered_counts['additions']
+                                    deletions = filtered_counts['deletions']
 
                             # Get reviews and comments
                             reviews = future_reviews.result()
@@ -897,8 +1018,30 @@ def main():
     else:
         logging.info(f"Sorting review balance table by: {sort_by}")
 
+    # Check if generated files should be excluded
+    exclude_generated_files = os.environ.get('EXCLUDE_GENERATED_FILES', 'false').lower() in ('true', '1', 'yes')
+    if exclude_generated_files:
+        logging.info("Excluding generated files from line count calculations")
+
+    # Get custom file patterns to exclude (if specified)
+    excluded_file_patterns = None
+    excluded_patterns_env = os.environ.get('EXCLUDED_FILE_PATTERNS')
+    if excluded_patterns_env:
+        # Parse comma-separated list from environment
+        excluded_file_patterns = [p.strip() for p in excluded_patterns_env.split(',') if p.strip()]
+        logging.info(f"Using custom excluded file patterns: {', '.join(excluded_file_patterns)}")
+
     # Create analyzer
-    analyzer = GitHubReviewAnalyzer(username, token, use_cache=use_cache, excluded_users=excluded_users, required_pr_label=required_pr_label, sort_by=sort_by)
+    analyzer = GitHubReviewAnalyzer(
+        username,
+        token,
+        use_cache=use_cache,
+        excluded_users=excluded_users,
+        required_pr_label=required_pr_label,
+        sort_by=sort_by,
+        exclude_generated_files=exclude_generated_files,
+        excluded_file_patterns=excluded_file_patterns
+    )
 
     # Analyze each repository
     logging.info(f"Starting analysis of {len(repos)} repository/repositories")
