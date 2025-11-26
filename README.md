@@ -52,37 +52,119 @@ Simply run the script and follow the prompts (or provide parameters via `.env` f
 python3 github-review-analyzer.py
 ```
 
-You'll be asked to provide:
-- Your GitHub username
-- GitHub token (optional, can press Enter to skip)
-- List of repositories to analyze (format: `owner/repo`)
-- Time range in months (default: 3)
-- Users to exclude (optional, comma-separated)
+## Output
 
-### Example Session
+The script generates a comprehensive report with **color-coded sections** for easy readability.
+
+### Report Structure
+
+The output consists of three main sections:
+
+1. **Review Balance & Next Actions** - Overview table showing:
+    - Your review balance with each collaborator (positive = you owe reviews, negative = they owe you)
+    - Total PRs reviewed in both directions
+    - Action indicators: `→` (you should review their PRs) or `←` (they should review yours)
+    - Sortable by various metrics (balance, total PRs, user, etc.)
+
+2. **Open PRs That Need Your Review** - Actionable list showing:
+    - Currently open PRs waiting for your review
+    - Automatically prioritized by who you owe the most reviews to
+    - Direct GitHub links and line counts for each PR
+
+3. **Detailed Review History** - Deep dive per collaborator:
+    - Complete metrics: PRs reviewed, lines reviewed, review events, comments
+    - Full list of PRs you reviewed with titles and links
+    - Full list of PRs they reviewed with titles and links
+
+## Example Output
+
+Below is a sample output (with anonymized usernames):
 
 ```
 GitHub PR Review Analyzer
 ================================================================================
+11/22/2025 08:54:33 PM INFO: Starting analysis for user: john-doe
+11/22/2025 08:54:33 PM INFO: Using repositories from environment: acme-corp/awesome-app
+11/22/2025 08:54:33 PM INFO: Using time range from environment: 6 months
+11/22/2025 08:54:33 PM INFO: Sorting review balance table by: balance
+11/22/2025 08:54:33 PM INFO: Excluding generated files from line count calculations
 
-Enter your GitHub username: florian-glombik
+Fetching pull requests from acme-corp/awesome-app...
+  Fetching open PRs... fetched 45 PRs
+  Fetching closed PRs... fetched 198 PRs
+Found 198 PRs in the last 6 months
+Analyzing 198 PRs...
+  Progress: 50/198 PRs analyzed
+  Progress: 150/198 PRs analyzed
+  Progress: 198/198 PRs analyzed
+Completed analysis of acme-corp/awesome-app
 
-Enter GitHub token (or press Enter to skip):
+================================================================================
+REVIEW SUMMARY FOR john-doe
+================================================================================
 
-Enter repositories (format: owner/repo, one per line)
-Press Enter on an empty line when done
-Example: ls1intum/Artemis
-Repository: ls1intum/Artemis
-Repository:
+================================================================================
+REVIEW BALANCE & NEXT ACTIONS
+================================================================================
 
-Analyze last N months [default: 3]: 3
+Review Balance (lines reviewed):
+User              Total PRs  Their PRs    My PRs    They reviewed      I reviewed         Balance    Action
+--------------------------------------------------------------------------------------------------------------
+alice-smith       45         5            40        +9,172/-3,347      +2,752/-2,305      +7,462     → I should review their PRs
+bob-jones         20         7            13        +6,582/-1,420      +1,601/-546        +5,855     → I should review their PRs
+charlie-brown     15         2            13        +3,749/-433        +421/-89           +3,750     → I should review their PRs
+diana-prince      12         0            12        +2,728/-916        +0/-0              +3,644     → I should review their PRs
+eve-wilson        8          3            5         +2,320/-84         +863/-571          +970       → I should review their PRs
+frank-castle      5          0            5         +549/-251          +0/-0              +800       → I should review their PRs
+grace-hopper      2          1            1         +78/-63            +146/-7            -12        ← They should review my PRs
+henry-ford        5          2            3         +399/-347          +838/-308          -400       ← They should review my PRs
+iris-west         5          2            3         +104/-202          +1,794/-491        -1,979     ← They should review my PRs
+jack-ryan         3          2            1         +327/-204          +1,920/-2,568      -3,957     ← They should review my PRs
+kate-bishop       5          3            2         +656/-508          +5,458/-1,006      -5,300     ← They should review my PRs
 
-Analyzing repository: ls1intum/Artemis
-  Fetching pull requests...
-  Found 150 PRs in the last 3 months
-  Processing PR 10/150...
-  ...
+================================================================================
+OPEN PRs THAT NEED YOUR REVIEW
+================================================================================
+
+You have 12 open PR(s) to review:
+
+From diana-prince (Priority: You owe them 3,644 lines):
+  • [awesome-app] #1234: Feature: Add user authentication system
+    https://github.com/acme-corp/awesome-app/pull/1234 (+346 / -245 lines)
+  • [awesome-app] #1256: Fix: Resolve memory leak in data processor
+    https://github.com/acme-corp/awesome-app/pull/1256 (+189 / -52 lines)
+
+From bob-jones (Priority: You owe them 5,855 lines):
+  • [awesome-app] #1289: Refactor: Modernize API endpoints
+    https://github.com/acme-corp/awesome-app/pull/1289 (+951 / -412 lines)
+  • [awesome-app] #1301: Docs: Update deployment guide
+    https://github.com/acme-corp/awesome-app/pull/1301 (+112 / -8 lines)
+
+From eve-wilson (Priority: You owe them 970 lines):
+  • [awesome-app] #1198: Feature: Add dark mode support
+    https://github.com/acme-corp/awesome-app/pull/1198 (+652 / -221 lines)
+
+From iris-west (Priority: They owe you 1,979 lines):
+  • [awesome-app] #1145: Test: Improve integration test coverage
+    https://github.com/acme-corp/awesome-app/pull/1145 (+487 / -156 lines)
 ```
+
+### Understanding the Output
+
+**Review Balance Table:**
+- **Positive Balance** (→): You owe them reviews - prioritize reviewing their PRs
+- **Negative Balance** (←): They owe you reviews - they should review your PRs
+- **Balance calculation**: (lines they reviewed of yours) - (lines you reviewed of theirs)
+
+**Open PRs Section:**
+- Automatically prioritized by review balance
+- Shows PRs from people you owe the most reviews to first
+- Includes clickable GitHub links and line counts
+
+**Detailed History:**
+- Complete breakdown per collaborator
+- All PRs listed with titles and links
+- Full metrics including comments and review events
 
 ## Caching
 
@@ -162,78 +244,6 @@ ANALYSIS_MONTHS=6
 EXCLUDED_USERS=coderabbitai[bot],dependabot,bot-user
 USE_CACHE=true
 SORT_BY=balance
-```
-
-## Output
-
-The script generates a detailed report showing:
-
-### Per-User Statistics
-For each user you've interacted with:
-- Number of PRs reviewed (both directions)
-- Lines of code reviewed (both directions)
-- Number of review events (approvals, change requests)
-- Number of comments written
-- Line review offset (balance between you and them)
-- Complete list of PRs with titles and direct links
-
-### Overall Statistics
-- Total PRs you reviewed
-- Total PRs others reviewed for you
-- Total lines reviewed (both directions)
-- Number of collaborators
-
-## Example Output
-
-```
-================================================================================
-REVIEW SUMMARY FOR florian-glombik
-================================================================================
-
-────────────────────────────────────────────────────────────────────────────────
-👤 user1
-────────────────────────────────────────────────────────────────────────────────
-
-Metric                         I reviewed           They reviewed
-──────────────────────────────────────────────────────────────────────────────
-PRs reviewed                   15                   10
-Lines reviewed (total)         5,420                3,200
-  +lines (additions)           4,200                2,500
-  -lines (deletions)           1,220                  700
-Review events                  18                   12
-Comments written               45                   28
-
-📊 Line Review Offset:
-   Total: +2,220 lines (positive = you reviewed more of their code)
-   +lines: +1,700
-   -lines: +520
-
-📝 PRs I reviewed (15):
-   • #1234: Add new feature for exercise management
-     https://github.com/ls1intum/Artemis/pull/1234 (+380 / -70 lines)
-   ...
-
-📝 PRs they reviewed (10):
-   • #1235: Fix bug in quiz assessment
-     https://github.com/ls1intum/Artemis/pull/1235 (+250 / -70 lines)
-   ...
-
-================================================================================
-OVERALL STATISTICS
-================================================================================
-
-Total PRs I reviewed: 45
-Total PRs others reviewed of mine: 38
-
-Total lines I reviewed: 15,840
-  +lines: 12,300
-  -lines: 3,540
-
-Total lines others reviewed: 12,450
-  +lines: 9,800
-  -lines: 2,650
-
-Number of collaborators: 12
 ```
 
 ## Rate Limits
