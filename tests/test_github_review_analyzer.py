@@ -779,7 +779,8 @@ class TestMainFunction:
         with patch.dict(os.environ, {
             'GITHUB_USERNAME': 'test_user',
             'GITHUB_REPOS': 'test/repo',
-            'ANALYSIS_MONTHS': 'invalid'
+            'ANALYSIS_MONTHS': 'invalid',
+            'GITHUB_TOKEN': 'test_token'
         }):
             with patch.object(GitHubReviewAnalyzer, 'analyze_repository'):
                 with patch.object(GitHubReviewAnalyzer, '_save_cache'):
@@ -790,7 +791,8 @@ class TestMainFunction:
         """Test that main continues after repository error."""
         with patch.dict(os.environ, {
             'GITHUB_USERNAME': 'test_user',
-            'GITHUB_REPOS': 'test/repo1,test/repo2'
+            'GITHUB_REPOS': 'test/repo1,test/repo2',
+            'GITHUB_TOKEN': 'test_token'
         }):
             with patch.object(GitHubReviewAnalyzer, 'analyze_repository', side_effect=[Exception('Error'), None]):
                 with patch.object(GitHubReviewAnalyzer, '_save_cache'):
