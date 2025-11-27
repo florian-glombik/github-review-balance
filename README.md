@@ -209,6 +209,27 @@ You can configure the script using environment variables in your `.env` file:
 - `EXCLUDED_USERS`: Comma-separated list of users to exclude from analysis
 - `USE_CACHE`: Enable/disable caching (default: true)
 - `SORT_BY`: Column to sort the review balance table by (default: total_prs)
+- `SHOW_EXTENDED_REPORT`: Show detailed review history per user (default: false)
+
+### Extended Report
+
+By default, the script outputs a concise report showing only the review balance table, open PRs, and overall statistics. To see the detailed review history section with per-user breakdowns of all reviewed PRs, you can enable the extended report:
+
+```bash
+# Enable extended report for a single run
+SHOW_EXTENDED_REPORT=true python3 github-review-analyzer.py
+
+# Or in your .env file
+SHOW_EXTENDED_REPORT=true
+```
+
+The extended report includes:
+- Detailed metrics table for each collaborator
+- Complete list of PRs you reviewed for them with links
+- Complete list of PRs they reviewed for you with links
+- Line review offset calculations per user
+
+This is useful for in-depth analysis but can make the output quite long if you have many collaborators.
 
 ### Table Sorting
 
@@ -244,6 +265,7 @@ ANALYSIS_MONTHS=6
 EXCLUDED_USERS=coderabbitai[bot],dependabot,bot-user
 USE_CACHE=true
 SORT_BY=balance
+SHOW_EXTENDED_REPORT=false
 ```
 
 ## Rate Limits

@@ -16,15 +16,17 @@ RESET = '\033[0m'
 class OutputFormatter:
     """Formats and prints review analysis results."""
 
-    def __init__(self, username: str, sort_by: str = 'total_prs'):
+    def __init__(self, username: str, sort_by: str = 'total_prs', show_extended_report: bool = False):
         """Initialize the output formatter.
 
         Args:
             username: The username being analyzed
             sort_by: Column to sort results by
+            show_extended_report: Whether to show the extended detailed history report
         """
         self.username = username
         self.sort_by = sort_by
+        self.show_extended_report = show_extended_report
 
     def print_summary(
         self,
@@ -55,8 +57,9 @@ class OutputFormatter:
         # Print open PRs needing review
         self._print_open_prs(open_prs_by_author, reviewed_by_me, reviewed_by_others)
 
-        # Print detailed history
-        self._print_detailed_history(all_users, reviewed_by_me, reviewed_by_others)
+        # Print detailed history (only if extended report is enabled)
+        if self.show_extended_report:
+            self._print_detailed_history(all_users, reviewed_by_me, reviewed_by_others)
 
         # Print overall statistics
         self._print_overall_stats(reviewed_by_me, reviewed_by_others)

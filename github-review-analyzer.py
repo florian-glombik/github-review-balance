@@ -127,6 +127,11 @@ def main():
         excluded_file_patterns = [p.strip() for p in excluded_patterns_env.split(',') if p.strip()]
         logging.info(f"Using custom excluded file patterns: {', '.join(excluded_file_patterns)}")
 
+    # Check if extended report should be shown
+    show_extended_report = os.environ.get('SHOW_EXTENDED_REPORT', 'false').lower() in ('true', '1', 'yes')
+    if show_extended_report:
+        logging.info("Extended report (detailed history) will be shown")
+
     # Create analyzer
     analyzer = GitHubReviewAnalyzer(
         username,
@@ -155,7 +160,7 @@ def main():
     logging.info("Analysis complete, generating summary...")
     open_prs_by_author = analyzer.get_open_prs_needing_review()
 
-    output_formatter = OutputFormatter(username, sort_by)
+    output_formatter = OutputFormatter(username, sort_by, show_extended_report)
     output_formatter.print_summary(
         analyzer.reviewed_by_me,
         analyzer.reviewed_by_others,
