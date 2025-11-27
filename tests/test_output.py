@@ -562,5 +562,223 @@ class TestCombinedOptions:
             assert 'OVERALL STATISTICS' in output
 
 
+class TestReviewRequestedIndicator:
+    """Test cases for the review requested indicator functionality."""
+
+    def test_review_requested_indicator_shown(self):
+        """Test that review requested indicator appears when requested_my_review is True."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        # Add minimal review history to trigger display
+        reviewed_by_me['alice'].prs_reviewed = 1
+        reviewed_by_me['alice'].lines_reviewed = 100
+
+        # Create open PR with review requested
+        open_prs_by_author = {
+            'alice': [{
+                'number': 123,
+                'title': 'Fix authentication bug',
+                'url': 'https://github.com/test/repo/pull/123',
+                'repo': 'test/repo',
+                'additions': 50,
+                'deletions': 20,
+                'review_count': 0,
+                'requested_my_review': True
+            }]
+        }
+
+        formatter = OutputFormatter('test_user')
+
+        with patch('sys.stdout', new=StringIO()) as fake_output:
+            formatter.print_summary(reviewed_by_me, reviewed_by_others, open_prs_by_author)
+            output = fake_output.getvalue()
+
+            # Check that the review requested indicator appears
+            assert '[REVIEW REQUESTED]' in output
+            assert 'Fix authentication bug' in output
+
+    def test_review_requested_indicator_not_shown(self):
+        """Test that review requested indicator does NOT appear when requested_my_review is False."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        # Add minimal review history to trigger display
+        reviewed_by_me['alice'].prs_reviewed = 1
+        reviewed_by_me['alice'].lines_reviewed = 100
+
+        # Create open PR without review requested
+        open_prs_by_author = {
+            'alice': [{
+                'number': 123,
+                'title': 'Fix authentication bug',
+                'url': 'https://github.com/test/repo/pull/123',
+                'repo': 'test/repo',
+                'additions': 50,
+                'deletions': 20,
+                'review_count': 0,
+                'requested_my_review': False
+            }]
+        }
+
+        formatter = OutputFormatter('test_user')
+
+        with patch('sys.stdout', new=StringIO()) as fake_output:
+            formatter.print_summary(reviewed_by_me, reviewed_by_others, open_prs_by_author)
+            output = fake_output.getvalue()
+
+            # Check that the review requested indicator does NOT appear
+            assert '[REVIEW REQUESTED]' not in output
+            assert 'Fix authentication bug' in output
+
+    def test_review_requested_with_multiple_prs(self):
+        """Test review requested indicator with multiple PRs, some requested and some not."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        # Add some review history for balance calculation
+        reviewed_by_me['alice'].prs_reviewed = 1
+        reviewed_by_me['alice'].lines_reviewed = 100
+        reviewed_by_others['alice'].prs_reviewed = 2
+        reviewed_by_others['alice'].lines_reviewed = 300
+
+        # Create multiple PRs with different requested_my_review states
+        open_prs_by_author = {
+            'alice': [
+                {
+                    'number': 123,
+                    'title': 'Requested PR 1',
+                    'url': 'https://github.com/test/repo/pull/123',
+                    'repo': 'test/repo',
+                    'additions': 50,
+                    'deletions': 20,
+                    'review_count': 0,
+                    'requested_my_review': True
+                },
+                {
+                    'number': 124,
+                    'title': 'Not requested PR',
+                    'url': 'https://github.com/test/repo/pull/124',
+                    'repo': 'test/repo',
+                    'additions': 30,
+                    'deletions': 10,
+                    'review_count': 1,
+                    'requested_my_review': False
+                },
+                {
+                    'number': 125,
+                    'title': 'Requested PR 2',
+                    'url': 'https://github.com/test/repo/pull/125',
+                    'repo': 'test/repo',
+                    'additions': 100,
+                    'deletions': 50,
+                    'review_count': 0,
+                    'requested_my_review': True
+                }
+            ]
+        }
+
+        formatter = OutputFormatter('test_user')
+
+        with patch('sys.stdout', new=StringIO()) as fake_output:
+            formatter.print_summary(reviewed_by_me, reviewed_by_others, open_prs_by_author)
+            output = fake_output.getvalue()
+
+            # Count occurrences of the review requested indicator
+            requested_count = output.count('[REVIEW REQUESTED]')
+            assert requested_count == 2, f"Expected 2 [REVIEW REQUESTED] indicators, found {requested_count}"
+
+            # Check that all PR titles appear
+            assert 'Requested PR 1' in output
+            assert 'Not requested PR' in output
+            assert 'Requested PR 2' in output
+
+    def test_review_requested_bypasses_review_count_threshold(self):
+        """Test that requested PRs are shown even when they exceed the review count threshold."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        # Add minimal review history to trigger display
+        reviewed_by_me['alice'].prs_reviewed = 1
+        reviewed_by_me['alice'].lines_reviewed = 100
+
+        # Create PRs with high review counts
+        open_prs_by_author = {
+            'alice': [
+                {
+                    'number': 123,
+                    'title': 'Requested PR with many reviews',
+                    'url': 'https://github.com/test/repo/pull/123',
+                    'repo': 'test/repo',
+                    'additions': 50,
+                    'deletions': 20,
+                    'review_count': 5,  # High review count
+                    'requested_my_review': True
+                },
+                {
+                    'number': 124,
+                    'title': 'Not requested PR with many reviews',
+                    'url': 'https://github.com/test/repo/pull/124',
+                    'repo': 'test/repo',
+                    'additions': 30,
+                    'deletions': 10,
+                    'review_count': 5,  # High review count
+                    'requested_my_review': False
+                }
+            ]
+        }
+
+        # Set threshold to filter PRs with 3 or more reviews
+        formatter = OutputFormatter('test_user', max_review_count_threshold=3)
+
+        with patch('sys.stdout', new=StringIO()) as fake_output:
+            formatter.print_summary(reviewed_by_me, reviewed_by_others, open_prs_by_author)
+            output = fake_output.getvalue()
+
+            # The requested PR should appear despite high review count
+            assert 'Requested PR with many reviews' in output
+            assert '[REVIEW REQUESTED]' in output
+
+            # The non-requested PR should be filtered out
+            assert 'Not requested PR with many reviews' not in output
+
+            # Check that filtering message appears
+            assert 'filtered out by threshold' in output or 'filtered out due to review count threshold' in output
+
+    def test_review_requested_with_no_review_history(self):
+        """Test review requested indicator when there's no review history with the author."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        # Add minimal review history with bob to trigger display
+        reviewed_by_me['bob'].prs_reviewed = 1
+        reviewed_by_me['bob'].lines_reviewed = 50
+
+        # Open PR from bob with review requested
+        open_prs_by_author = {
+            'bob': [{
+                'number': 456,
+                'title': 'New contributor PR',
+                'url': 'https://github.com/test/repo/pull/456',
+                'repo': 'test/repo',
+                'additions': 200,
+                'deletions': 100,
+                'review_count': 0,
+                'requested_my_review': True
+            }]
+        }
+
+        formatter = OutputFormatter('test_user')
+
+        with patch('sys.stdout', new=StringIO()) as fake_output:
+            formatter.print_summary(reviewed_by_me, reviewed_by_others, open_prs_by_author)
+            output = fake_output.getvalue()
+
+            # Should still show the requested indicator
+            assert '[REVIEW REQUESTED]' in output
+            assert 'New contributor PR' in output
+            assert 'bob' in output
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

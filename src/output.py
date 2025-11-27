@@ -10,6 +10,8 @@ from .models import ReviewStats
 GREEN = '\033[92m'
 YELLOW = '\033[93m'
 RED = '\033[91m'
+CYAN = '\033[96m'
+BOLD = '\033[1m'
 RESET = '\033[0m'
 
 
@@ -268,15 +270,18 @@ class OutputFormatter:
                 review_count = pr.get('review_count', 0)
                 requested_my_review = pr.get('requested_my_review', False)
 
-                # Determine PR color based on balance (same logic as author color)
-                pr_color = author_color
+                # Use cyan/bold color for requested reviews to make them stand out
+                if requested_my_review:
+                    pr_color = CYAN + BOLD
+                    request_indicator = f" {CYAN}{BOLD}👉 [REVIEW REQUESTED]{RESET}"
+                else:
+                    pr_color = author_color
+                    request_indicator = ""
 
                 # Build review info string
                 review_info = f"[{review_count} review(s)]"
-                if requested_my_review:
-                    review_info += " [REQUESTED]"
 
-                print(f"  {pr_color}• [{repo_short}] #{pr['number']}: {pr['title']}{RESET}")
+                print(f"  {pr_color}• [{repo_short}] #{pr['number']}: {pr['title']}{RESET}{request_indicator}")
                 print(f"    {pr['url']} (+{pr['additions']:,} / -{pr['deletions']:,} lines) {review_info}")
             print()
 
