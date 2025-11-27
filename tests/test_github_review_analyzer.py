@@ -9,7 +9,7 @@ import tempfile
 import requests
 from datetime import datetime, timedelta
 from unittest.mock import Mock, patch, MagicMock
-from threading import Lock
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import importlib.util
 
@@ -547,7 +547,7 @@ class TestThreadSafety:
         analyzer = GitHubReviewAnalyzer(username='test_user', use_cache=False)
 
         assert hasattr(analyzer, '_stats_lock')
-        assert isinstance(analyzer._stats_lock, Lock)
+        assert isinstance(analyzer._stats_lock, type(threading.Lock()))
 
     def test_concurrent_stats_update(self):
         """Test that stats can be updated safely from multiple threads."""
@@ -780,7 +780,8 @@ class TestMainFunction:
             'GITHUB_USERNAME': 'test_user',
             'GITHUB_REPOS': 'test/repo',
             'ANALYSIS_MONTHS': 'invalid',
-            'GITHUB_TOKEN': 'test_token'
+            'GITHUB_TOKEN': 'test_token',
+            'EXCLUDED_USERS': 'none'
         }):
             with patch.object(GitHubReviewAnalyzer, 'analyze_repository'):
                 with patch.object(GitHubReviewAnalyzer, '_save_cache'):
@@ -792,7 +793,9 @@ class TestMainFunction:
         with patch.dict(os.environ, {
             'GITHUB_USERNAME': 'test_user',
             'GITHUB_REPOS': 'test/repo1,test/repo2',
-            'GITHUB_TOKEN': 'test_token'
+            'GITHUB_TOKEN': 'test_token',
+            'ANALYSIS_MONTHS': '3',
+            'EXCLUDED_USERS': 'none'
         }):
             with patch.object(GitHubReviewAnalyzer, 'analyze_repository', side_effect=[Exception('Error'), None]):
                 with patch.object(GitHubReviewAnalyzer, '_save_cache'):

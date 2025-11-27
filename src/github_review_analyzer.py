@@ -307,6 +307,47 @@ class GitHubReviewAnalyzer:
 
         return recent_prs
 
+    def _batch_prefetch_filtered_line_counts(self, repo: str, prs: List[Dict]):
+        """Batch-prefetch filtered line counts for all closed PRs in parallel.
+
+        Args:
+            repo: Repository name
+            prs: List of PRs to prefetch file data for
+        """
+        if not self.exclude_generated_files:
+            return
+
+        # Only prefetch for closed PRs (which will be cached)
+        closed_prs = [pr for pr in prs if pr.get('state') == 'closed']
+
+        if not closed_prs:
+            return
+
+        print(f"Pre-fetching file data for {len(closed_prs)} closed PRs...")
+        prefetched = 0
+        max_workers = min(10, len(closed_prs))
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_pr = {
+                executor.submit(self._get_filtered_line_counts, repo, pr['number'], should_cache=True): pr
+                for pr in closed_prs
+            }
+
+            for future in as_completed(future_to_pr):
+                pr = future_to_pr[future]
+                try:
+                    future.result()
+                    prefetched += 1
+
+                    if prefetched % 20 == 0 or prefetched == len(closed_prs):
+                        print(f"  Prefetch progress: {prefetched}/{len(closed_prs)} PRs", flush=True)
+
+                except Exception as e:
+                    logging.warning(f"Error prefetching PR #{pr['number']}: {e}")
+                    prefetched += 1
+
+        print(f"Pre-fetching complete. Proceeding with PR analysis...")
+
     def _process_prs_parallel(self, repo: str, prs: List[Dict]):
         """Process PRs in parallel.
 
@@ -314,6 +355,9 @@ class GitHubReviewAnalyzer:
             repo: Repository name
             prs: List of PRs to process
         """
+        # Batch-prefetch filtered line counts before processing
+        self._batch_prefetch_filtered_line_counts(repo, prs)
+
         print(f"Analyzing {len(prs)} PRs...")
         completed = 0
         max_workers = min(10, len(prs))
@@ -533,6 +577,8 @@ class GitHubReviewAnalyzer:
                     'direction': 'desc'
                 }, use_cache=False)
 
+                # Filter PRs first
+                candidate_prs = []
                 for pr in open_prs:
                     pr_author = pr['user']['login']
 
@@ -550,14 +596,128 @@ class GitHubReviewAnalyzer:
                         if self.required_pr_label not in pr_labels:
                             continue
 
-                    # Check if I've already reviewed this PR
-                    if not self._has_reviewed_pr(repo, pr):
-                        prs_by_author[pr_author].append(self._create_pr_info(repo, pr))
+                    candidate_prs.append(pr)
+
+                # Process PRs in parallel
+                if candidate_prs:
+                    self._process_open_prs_parallel(repo, candidate_prs, prs_by_author)
 
             except Exception as e:
                 logging.error(f"Error fetching open PRs from {repo}: {e}")
 
         return prs_by_author
+
+    def _process_open_prs_parallel(self, repo: str, prs: List[Dict], prs_by_author: Dict):
+        """Process open PRs in parallel to check if they need review.
+
+        Args:
+            repo: Repository name
+            prs: List of candidate PRs
+            prs_by_author: Dictionary to populate with results
+        """
+        max_workers = min(10, len(prs))
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_pr = {
+                executor.submit(self._check_and_create_pr_info, repo, pr): pr
+                for pr in prs
+            }
+
+            for future in as_completed(future_to_pr):
+                pr = future_to_pr[future]
+                try:
+                    result = future.result()
+                    if result is not None:
+                        pr_author = pr['user']['login']
+                        prs_by_author[pr_author].append(result)
+                except Exception as e:
+                    logging.warning(f"Error processing open PR #{pr['number']}: {e}")
+
+    def _check_and_create_pr_info(self, repo: str, pr: Dict) -> Optional[Dict]:
+        """Check if a PR needs review and create PR info if so.
+
+        Args:
+            repo: Repository name
+            pr: PR data
+
+        Returns:
+            PR info dictionary if PR needs review, None otherwise
+        """
+        pr_number = pr['number']
+        pr_details_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
+        reviews_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews"
+        comments_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/comments"
+
+        try:
+            # Fetch all data in parallel
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                future_details = executor.submit(self.api_client.get, pr_details_url)
+                future_reviews = executor.submit(self._get_paginated, reviews_url, use_cache=False)
+                future_comments = executor.submit(self._get_paginated, comments_url, use_cache=False)
+
+                pr_details_response = future_details.result()
+                reviews = future_reviews.result()
+                comments = future_comments.result()
+
+            # Check if I've already reviewed
+            my_reviews = [r for r in reviews if r['user']['login'] == self.username]
+            my_comments = [c for c in comments if c['user']['login'] == self.username]
+
+            if my_reviews or my_comments:
+                return None  # Already reviewed
+
+            # Create PR info
+            additions = 0
+            deletions = 0
+            review_count = 0
+            requested_my_review = False
+
+            if pr_details_response.status_code == 200:
+                pr_details = pr_details_response.json()
+                additions = pr_details.get('additions', 0)
+                deletions = pr_details.get('deletions', 0)
+
+                # Check if I was requested to review
+                requested_reviewers = pr_details.get('requested_reviewers', [])
+                requested_my_review = any(
+                    reviewer['login'] == self.username
+                    for reviewer in requested_reviewers
+                )
+
+                # Apply file filtering if enabled - check cache first
+                if self.exclude_generated_files:
+                    filtered_counts = self._get_filtered_line_counts(repo, pr_number, should_cache=True)
+                    if filtered_counts:
+                        additions = filtered_counts['additions']
+                        deletions = filtered_counts['deletions']
+
+            # Count unique reviewers
+            unique_reviewers = set()
+            pr_author = pr['user']['login']
+
+            for review in reviews:
+                reviewer = review['user']['login']
+                if reviewer != pr_author and reviewer not in self.excluded_users:
+                    unique_reviewers.add(reviewer)
+
+            review_count = len(unique_reviewers)
+
+            return {
+                'number': pr_number,
+                'title': pr['title'],
+                'url': pr['html_url'],
+                'repo': repo,
+                'additions': additions,
+                'deletions': deletions,
+                'created_at': pr['created_at'],
+                'updated_at': pr['updated_at'],
+                'review_count': review_count,
+                'requested_my_review': requested_my_review
+            }
+
+        except Exception as e:
+            logging.warning(f"Error checking PR #{pr_number}: {e}")
+            return None
 
     def _has_reviewed_pr(self, repo: str, pr: Dict) -> bool:
         """Check if the user has already reviewed a PR.
