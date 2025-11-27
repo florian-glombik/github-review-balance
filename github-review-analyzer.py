@@ -132,6 +132,21 @@ def main():
     if show_extended_report:
         logging.info("Extended report (detailed history) will be shown")
 
+    # Check if overall statistics should be shown
+    show_overall_statistics = os.environ.get('SHOW_OVERALL_STATISTICS', 'true').lower() not in ('false', '0', 'no')
+    if not show_overall_statistics:
+        logging.info("Overall statistics section will be hidden")
+
+    # Get minimum review count threshold from environment
+    max_review_count_threshold = None
+    threshold_env = os.environ.get('MAX_REVIEW_COUNT_THRESHOLD')
+    if threshold_env:
+        try:
+            max_review_count_threshold = int(threshold_env)
+            logging.info(f"Will filter out PRs with {max_review_count_threshold}+ reviews (except review requests)")
+        except ValueError:
+            logging.warning(f"Invalid MAX_REVIEW_COUNT_THRESHOLD value '{threshold_env}', ignoring")
+
     # Create analyzer
     analyzer = GitHubReviewAnalyzer(
         username,
@@ -141,7 +156,8 @@ def main():
         required_pr_label=required_pr_label,
         sort_by=sort_by,
         exclude_generated_files=exclude_generated_files,
-        excluded_file_patterns=excluded_file_patterns
+        excluded_file_patterns=excluded_file_patterns,
+        max_review_count_threshold=max_review_count_threshold
     )
 
     # Analyze each repository
@@ -160,7 +176,7 @@ def main():
     logging.info("Analysis complete, generating summary...")
     open_prs_by_author = analyzer.get_open_prs_needing_review()
 
-    output_formatter = OutputFormatter(username, sort_by, show_extended_report)
+    output_formatter = OutputFormatter(username, sort_by, show_extended_report, show_overall_statistics, max_review_count_threshold)
     output_formatter.print_summary(
         analyzer.reviewed_by_me,
         analyzer.reviewed_by_others,

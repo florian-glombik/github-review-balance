@@ -21,6 +21,7 @@ class TestOutputFormatterInitialization:
         assert formatter.username == 'test_user'
         assert formatter.sort_by == 'total_prs'
         assert formatter.show_extended_report is False
+        assert formatter.show_overall_statistics is True
 
     def test_initialization_with_extended_report_true(self):
         """Test OutputFormatter initialization with extended report enabled."""
@@ -45,11 +46,12 @@ class TestOutputFormatterInitialization:
 
     def test_initialization_with_all_params(self):
         """Test OutputFormatter initialization with all parameters."""
-        formatter = OutputFormatter('test_user', sort_by='balance', show_extended_report=True)
+        formatter = OutputFormatter('test_user', sort_by='balance', show_extended_report=True, show_overall_statistics=False)
 
         assert formatter.username == 'test_user'
         assert formatter.sort_by == 'balance'
         assert formatter.show_extended_report is True
+        assert formatter.show_overall_statistics is False
 
 
 class TestExtendedReportDisplay:
@@ -388,6 +390,176 @@ class TestPrintDetailedHistory:
 
                 # Method should NOT be called
                 mock_method.assert_not_called()
+
+
+class TestOverallStatisticsDisplay:
+    """Test cases for overall statistics display functionality."""
+
+    @pytest.fixture
+    def sample_stats(self):
+        """Create sample review statistics for testing."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        reviewed_by_me['alice'].prs_reviewed = 2
+        reviewed_by_me['alice'].lines_reviewed = 500
+        reviewed_by_me['alice'].additions_reviewed = 400
+        reviewed_by_me['alice'].deletions_reviewed = 100
+
+        reviewed_by_others['alice'].prs_reviewed = 3
+        reviewed_by_others['alice'].lines_reviewed = 800
+        reviewed_by_others['alice'].additions_reviewed = 600
+        reviewed_by_others['alice'].deletions_reviewed = 200
+
+        open_prs_by_author = {}
+
+        return reviewed_by_me, reviewed_by_others, open_prs_by_author
+
+    def test_overall_statistics_shown_when_enabled(self, sample_stats):
+        """Test that overall statistics is displayed when show_overall_statistics=True."""
+        reviewed_by_me, reviewed_by_others, open_prs_by_author = sample_stats
+        formatter = OutputFormatter('test_user', show_overall_statistics=True)
+
+        with patch('sys.stdout', new=StringIO()) as fake_output:
+            formatter.print_summary(reviewed_by_me, reviewed_by_others, open_prs_by_author)
+            output = fake_output.getvalue()
+
+            assert 'OVERALL STATISTICS' in output
+            assert 'Total PRs I reviewed:' in output
+            assert 'Total PRs others reviewed of mine:' in output
+            assert 'Total lines I reviewed:' in output
+            assert 'Total lines others reviewed:' in output
+            assert 'Number of collaborators:' in output
+
+    def test_overall_statistics_hidden_when_disabled(self, sample_stats):
+        """Test that overall statistics is NOT displayed when show_overall_statistics=False."""
+        reviewed_by_me, reviewed_by_others, open_prs_by_author = sample_stats
+        formatter = OutputFormatter('test_user', show_overall_statistics=False)
+
+        with patch('sys.stdout', new=StringIO()) as fake_output:
+            formatter.print_summary(reviewed_by_me, reviewed_by_others, open_prs_by_author)
+            output = fake_output.getvalue()
+
+            assert 'OVERALL STATISTICS' not in output
+            assert 'REVIEW BALANCE & NEXT ACTIONS' in output
+
+    def test_overall_statistics_default_is_shown(self, sample_stats):
+        """Test that overall statistics is shown by default (when parameter is not specified)."""
+        reviewed_by_me, reviewed_by_others, open_prs_by_author = sample_stats
+        formatter = OutputFormatter('test_user')
+
+        with patch('sys.stdout', new=StringIO()) as fake_output:
+            formatter.print_summary(reviewed_by_me, reviewed_by_others, open_prs_by_author)
+            output = fake_output.getvalue()
+
+            assert 'OVERALL STATISTICS' in output
+
+
+class TestPrintOverallStats:
+    """Test the _print_overall_stats method specifically."""
+
+    def test_print_overall_stats_method_called_when_enabled(self):
+        """Test that _print_overall_stats is called when overall statistics is enabled."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+        reviewed_by_me['alice'].prs_reviewed = 1
+
+        open_prs_by_author = {}
+        formatter = OutputFormatter('test_user', show_overall_statistics=True)
+
+        with patch.object(formatter, '_print_overall_stats') as mock_method:
+            with patch('sys.stdout', new=StringIO()):
+                formatter.print_summary(reviewed_by_me, reviewed_by_others, open_prs_by_author)
+
+                mock_method.assert_called_once()
+
+    def test_print_overall_stats_method_not_called_when_disabled(self):
+        """Test that _print_overall_stats is NOT called when overall statistics is disabled."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+        reviewed_by_me['alice'].prs_reviewed = 1
+
+        open_prs_by_author = {}
+        formatter = OutputFormatter('test_user', show_overall_statistics=False)
+
+        with patch.object(formatter, '_print_overall_stats') as mock_method:
+            with patch('sys.stdout', new=StringIO()):
+                formatter.print_summary(reviewed_by_me, reviewed_by_others, open_prs_by_author)
+
+                mock_method.assert_not_called()
+
+
+class TestCombinedOptions:
+    """Test cases for combined show_extended_report and show_overall_statistics options."""
+
+    def test_both_extended_and_stats_enabled(self):
+        """Test with both extended report and overall statistics enabled."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+        reviewed_by_me['alice'].prs_reviewed = 1
+        reviewed_by_me['alice'].lines_reviewed = 100
+
+        open_prs_by_author = {}
+        formatter = OutputFormatter('test_user', show_extended_report=True, show_overall_statistics=True)
+
+        with patch('sys.stdout', new=StringIO()) as fake_output:
+            formatter.print_summary(reviewed_by_me, reviewed_by_others, open_prs_by_author)
+            output = fake_output.getvalue()
+
+            assert 'DETAILED REVIEW HISTORY' in output
+            assert 'OVERALL STATISTICS' in output
+
+    def test_both_extended_and_stats_disabled(self):
+        """Test with both extended report and overall statistics disabled."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+        reviewed_by_me['alice'].prs_reviewed = 1
+        reviewed_by_me['alice'].lines_reviewed = 100
+
+        open_prs_by_author = {}
+        formatter = OutputFormatter('test_user', show_extended_report=False, show_overall_statistics=False)
+
+        with patch('sys.stdout', new=StringIO()) as fake_output:
+            formatter.print_summary(reviewed_by_me, reviewed_by_others, open_prs_by_author)
+            output = fake_output.getvalue()
+
+            assert 'DETAILED REVIEW HISTORY' not in output
+            assert 'OVERALL STATISTICS' not in output
+            assert 'REVIEW BALANCE & NEXT ACTIONS' in output
+
+    def test_extended_enabled_stats_disabled(self):
+        """Test with extended report enabled but overall statistics disabled."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+        reviewed_by_me['alice'].prs_reviewed = 1
+        reviewed_by_me['alice'].lines_reviewed = 100
+
+        open_prs_by_author = {}
+        formatter = OutputFormatter('test_user', show_extended_report=True, show_overall_statistics=False)
+
+        with patch('sys.stdout', new=StringIO()) as fake_output:
+            formatter.print_summary(reviewed_by_me, reviewed_by_others, open_prs_by_author)
+            output = fake_output.getvalue()
+
+            assert 'DETAILED REVIEW HISTORY' in output
+            assert 'OVERALL STATISTICS' not in output
+
+    def test_extended_disabled_stats_enabled(self):
+        """Test with extended report disabled but overall statistics enabled."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+        reviewed_by_me['alice'].prs_reviewed = 1
+        reviewed_by_me['alice'].lines_reviewed = 100
+
+        open_prs_by_author = {}
+        formatter = OutputFormatter('test_user', show_extended_report=False, show_overall_statistics=True)
+
+        with patch('sys.stdout', new=StringIO()) as fake_output:
+            formatter.print_summary(reviewed_by_me, reviewed_by_others, open_prs_by_author)
+            output = fake_output.getvalue()
+
+            assert 'DETAILED REVIEW HISTORY' not in output
+            assert 'OVERALL STATISTICS' in output
 
 
 if __name__ == '__main__':

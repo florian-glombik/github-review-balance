@@ -68,8 +68,11 @@ The output consists of three main sections:
 
 2. **Open PRs That Need Your Review** - Actionable list showing:
     - Currently open PRs waiting for your review
-    - Automatically prioritized by who you owe the most reviews to
+    - Automatically prioritized by who you owe the most reviews to (color-coded: green/yellow/red)
     - Direct GitHub links and line counts for each PR
+    - Review count for each PR (how many people have already reviewed it)
+    - Indicates PRs where your review was explicitly requested
+    - Optional filtering by review count threshold (excludes PRs with sufficient reviews, except those requesting you)
 
 3. **Detailed Review History** - Deep dive per collaborator:
     - Complete metrics: PRs reviewed, lines reviewed, review events, comments
@@ -210,6 +213,8 @@ You can configure the script using environment variables in your `.env` file:
 - `USE_CACHE`: Enable/disable caching (default: true)
 - `SORT_BY`: Column to sort the review balance table by (default: total_prs)
 - `SHOW_EXTENDED_REPORT`: Show detailed review history per user (default: false)
+- `SHOW_OVERALL_STATISTICS`: Show overall statistics section (default: true)
+- `MAX_REVIEW_COUNT_THRESHOLD`: Filter out PRs with N or more reviews from the open PRs list (default: no filtering)
 
 ### Extended Report
 
@@ -230,6 +235,57 @@ The extended report includes:
 - Line review offset calculations per user
 
 This is useful for in-depth analysis but can make the output quite long if you have many collaborators.
+
+### Overall Statistics
+
+By default, the script displays an overall statistics section at the end showing aggregate metrics across all collaborators. To hide this section and make the output more concise, you can disable it:
+
+```bash
+# Disable overall statistics for a single run
+SHOW_OVERALL_STATISTICS=false python3 github-review-analyzer.py
+
+# Or in your .env file
+SHOW_OVERALL_STATISTICS=false
+```
+
+The overall statistics section includes:
+- Total number of PRs you reviewed
+- Total number of PRs others reviewed for you
+- Total lines reviewed (with separate additions and deletions)
+- Number of collaborators
+
+This is useful if you only want to focus on the per-user review balance and open PRs without the aggregate summary.
+
+### Review Count Threshold Filtering
+
+You can configure the tool to filter out PRs from the "Open PRs That Need Your Review" section based on how many reviews they've already received. This is useful when you want to focus on PRs that haven't gotten much attention yet.
+
+**Key Features:**
+- PRs with N or more reviews will be hidden from the open PRs list
+- **Exception**: PRs that explicitly requested your review will ALWAYS be shown, regardless of review count
+- The filter displays how many PRs were filtered out
+- Color coding (green/yellow/red) is applied based on review balance with each author
+
+Example usage:
+
+```bash
+# Only show PRs with fewer than 2 reviews (unless you were requested)
+MAX_REVIEW_COUNT_THRESHOLD=2 python3 github-review-analyzer.py
+
+# Or in your .env file
+MAX_REVIEW_COUNT_THRESHOLD=2
+```
+
+**Example output:**
+```
+You have 8 open PR(s) to review (4 filtered out by threshold):
+
+From alice-smith (Priority: You owe them 7,462 lines):
+  • [awesome-app] #1234: Feature: Add user authentication system
+    https://github.com/acme-corp/awesome-app/pull/1234 (+346 / -245 lines) [0 review(s)]
+  • [awesome-app] #1256: Fix: Resolve memory leak in data processor
+    https://github.com/acme-corp/awesome-app/pull/1256 (+189 / -52 lines) [1 review(s)] [REQUESTED]
+```
 
 ### Table Sorting
 
@@ -266,6 +322,7 @@ EXCLUDED_USERS=coderabbitai[bot],dependabot,bot-user
 USE_CACHE=true
 SORT_BY=balance
 SHOW_EXTENDED_REPORT=false
+SHOW_OVERALL_STATISTICS=true
 ```
 
 ## Rate Limits

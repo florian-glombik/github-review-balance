@@ -16,17 +16,21 @@ RESET = '\033[0m'
 class OutputFormatter:
     """Formats and prints review analysis results."""
 
-    def __init__(self, username: str, sort_by: str = 'total_prs', show_extended_report: bool = False):
+    def __init__(self, username: str, sort_by: str = 'total_prs', show_extended_report: bool = False, show_overall_statistics: bool = True, max_review_count_threshold: int = None):
         """Initialize the output formatter.
 
         Args:
             username: The username being analyzed
             sort_by: Column to sort results by
             show_extended_report: Whether to show the extended detailed history report
+            show_overall_statistics: Whether to show the overall statistics section
+            max_review_count_threshold: Minimum review count to filter PRs (None = no filtering)
         """
         self.username = username
         self.sort_by = sort_by
         self.show_extended_report = show_extended_report
+        self.show_overall_statistics = show_overall_statistics
+        self.max_review_count_threshold = max_review_count_threshold
 
     def print_summary(
         self,
@@ -61,8 +65,9 @@ class OutputFormatter:
         if self.show_extended_report:
             self._print_detailed_history(all_users, reviewed_by_me, reviewed_by_others)
 
-        # Print overall statistics
-        self._print_overall_stats(reviewed_by_me, reviewed_by_others)
+        # Print overall statistics (only if enabled)
+        if self.show_overall_statistics:
+            self._print_overall_stats(reviewed_by_me, reviewed_by_others)
 
     def _print_review_balance(
         self,
@@ -180,7 +185,7 @@ class OutputFormatter:
             print("\nNo open PRs found that need your review.")
             return
 
-        # Calculate review balance for sorting
+        # Calculate review balance for sorting and coloring
         all_users = set(reviewed_by_me.keys()) | set(reviewed_by_others.keys())
         review_balance = []
         for user in all_users:
@@ -192,43 +197,87 @@ class OutputFormatter:
                 'balance': balance
             })
 
+        # Filter PRs based on review count threshold
+        filtered_prs_by_author = {}
+        filtered_count = 0
+
+        for author, prs in open_prs_by_author.items():
+            filtered_prs = []
+            for pr in prs:
+                review_count = pr.get('review_count', 0)
+                requested_my_review = pr.get('requested_my_review', False)
+
+                # Always include PRs where my review was explicitly requested
+                # Otherwise, apply threshold filtering
+                if requested_my_review:
+                    filtered_prs.append(pr)
+                elif self.max_review_count_threshold is None or review_count < self.max_review_count_threshold:
+                    filtered_prs.append(pr)
+                else:
+                    filtered_count += 1
+
+            if filtered_prs:
+                filtered_prs_by_author[author] = filtered_prs
+
         # Sort authors by review balance
-        authors_with_prs = [(user, open_prs_by_author[user]) for user in open_prs_by_author]
+        authors_with_prs = [(user, filtered_prs_by_author[user]) for user in filtered_prs_by_author]
         authors_with_prs.sort(key=lambda x: next(
             (item['balance'] for item in review_balance if item['user'] == x[0]),
             0
         ), reverse=True)
 
-        total_prs_to_review = sum(len(prs) for prs in open_prs_by_author.values())
-        print(f"\nYou have {total_prs_to_review} open PR(s) to review:\n")
+        total_prs_to_review = sum(len(prs) for prs in filtered_prs_by_author.values())
+
+        if total_prs_to_review == 0:
+            print("\nNo open PRs found that need your review.")
+            if filtered_count > 0:
+                print(f"({filtered_count} PR(s) filtered out due to review count threshold)")
+            return
+
+        print(f"\nYou have {total_prs_to_review} open PR(s) to review", end='')
+        if filtered_count > 0:
+            print(f" ({filtered_count} filtered out by threshold):\n")
+        else:
+            print(":\n")
 
         for author, prs in authors_with_prs:
             balance_info = next((item for item in review_balance if item['user'] == author), None)
 
-            # Determine color and priority
+            # Determine color and priority based on balance
             if balance_info:
                 balance = balance_info['balance']
                 if balance == 0:
-                    color = RESET
+                    author_color = RESET
                     priority = ""
                 elif balance > 0:
-                    color = GREEN
+                    author_color = GREEN
                     priority = f"(Priority: You owe them {balance:,} lines)"
                 elif balance > -1000:
-                    color = YELLOW
+                    author_color = YELLOW
                     priority = ""
                 else:
-                    color = RED
+                    author_color = RED
                     priority = ""
             else:
-                color = RESET
+                author_color = RESET
                 priority = ""
 
-            print(f"{color}From {author} {priority}:{RESET}")
+            print(f"{author_color}From {author} {priority}:{RESET}")
             for pr in prs:
                 repo_short = pr['repo'].split('/')[-1]
-                print(f"  • [{repo_short}] #{pr['number']}: {pr['title']}")
-                print(f"    {pr['url']} (+{pr['additions']:,} / -{pr['deletions']:,} lines)")
+                review_count = pr.get('review_count', 0)
+                requested_my_review = pr.get('requested_my_review', False)
+
+                # Determine PR color based on balance (same logic as author color)
+                pr_color = author_color
+
+                # Build review info string
+                review_info = f"[{review_count} review(s)]"
+                if requested_my_review:
+                    review_info += " [REQUESTED]"
+
+                print(f"  {pr_color}• [{repo_short}] #{pr['number']}: {pr['title']}{RESET}")
+                print(f"    {pr['url']} (+{pr['additions']:,} / -{pr['deletions']:,} lines) {review_info}")
             print()
 
     def _print_detailed_history(
