@@ -147,6 +147,11 @@ def main():
         except ValueError:
             logging.warning(f"Invalid MAX_REVIEW_COUNT_THRESHOLD value '{threshold_env}', ignoring")
 
+    # Check if non-PR authors should be filtered out
+    filter_non_pr_authors = os.environ.get('FILTER_NON_PR_AUTHORS', 'false').lower() in ('true', '1', 'yes')
+    if filter_non_pr_authors:
+        logging.info("Filtering out users who have not opened any PRs")
+
     # Create analyzer
     analyzer = GitHubReviewAnalyzer(
         username,
@@ -176,11 +181,12 @@ def main():
     logging.info("Analysis complete, generating summary...")
     open_prs_by_author = analyzer.get_open_prs_needing_review()
 
-    output_formatter = OutputFormatter(username, sort_by, show_extended_report, show_overall_statistics, max_review_count_threshold)
+    output_formatter = OutputFormatter(username, sort_by, show_extended_report, show_overall_statistics, max_review_count_threshold, filter_non_pr_authors)
     output_formatter.print_summary(
         analyzer.reviewed_by_me,
         analyzer.reviewed_by_others,
-        open_prs_by_author
+        open_prs_by_author,
+        analyzer.pr_authors
     )
 
 

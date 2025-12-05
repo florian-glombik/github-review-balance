@@ -18,7 +18,7 @@ RESET = '\033[0m'
 class OutputFormatter:
     """Formats and prints review analysis results."""
 
-    def __init__(self, username: str, sort_by: str = 'total_prs', show_extended_report: bool = False, show_overall_statistics: bool = True, max_review_count_threshold: int = None):
+    def __init__(self, username: str, sort_by: str = 'total_prs', show_extended_report: bool = False, show_overall_statistics: bool = True, max_review_count_threshold: int = None, filter_non_pr_authors: bool = False):
         """Initialize the output formatter.
 
         Args:
@@ -27,18 +27,21 @@ class OutputFormatter:
             show_extended_report: Whether to show the extended detailed history report
             show_overall_statistics: Whether to show the overall statistics section
             max_review_count_threshold: Minimum review count to filter PRs (None = no filtering)
+            filter_non_pr_authors: Whether to filter out users who have not opened any PRs
         """
         self.username = username
         self.sort_by = sort_by
         self.show_extended_report = show_extended_report
         self.show_overall_statistics = show_overall_statistics
         self.max_review_count_threshold = max_review_count_threshold
+        self.filter_non_pr_authors = filter_non_pr_authors
 
     def print_summary(
         self,
         reviewed_by_me: Dict[str, ReviewStats],
         reviewed_by_others: Dict[str, ReviewStats],
-        open_prs_by_author: Dict[str, list]
+        open_prs_by_author: Dict[str, list],
+        pr_authors: Set[str] = None
     ):
         """Print a comprehensive summary of review statistics.
 
@@ -46,6 +49,7 @@ class OutputFormatter:
             reviewed_by_me: Statistics for PRs I reviewed
             reviewed_by_others: Statistics for PRs others reviewed
             open_prs_by_author: Open PRs grouped by author
+            pr_authors: Set of all users who have authored PRs in the repositories
         """
         print("\n" + "="*80)
         print(f"REVIEW SUMMARY FOR {self.username}")
@@ -58,24 +62,25 @@ class OutputFormatter:
             return
 
         # Print review balance and next actions
-        self._print_review_balance(all_users, reviewed_by_me, reviewed_by_others)
+        self._print_review_balance(all_users, reviewed_by_me, reviewed_by_others, pr_authors)
 
         # Print open PRs needing review
         self._print_open_prs(open_prs_by_author, reviewed_by_me, reviewed_by_others)
 
         # Print detailed history (only if extended report is enabled)
         if self.show_extended_report:
-            self._print_detailed_history(all_users, reviewed_by_me, reviewed_by_others)
+            self._print_detailed_history(all_users, reviewed_by_me, reviewed_by_others, pr_authors)
 
         # Print overall statistics (only if enabled)
         if self.show_overall_statistics:
-            self._print_overall_stats(reviewed_by_me, reviewed_by_others)
+            self._print_overall_stats(reviewed_by_me, reviewed_by_others, pr_authors)
 
     def _print_review_balance(
         self,
         all_users: Set[str],
         reviewed_by_me: Dict[str, ReviewStats],
-        reviewed_by_others: Dict[str, ReviewStats]
+        reviewed_by_others: Dict[str, ReviewStats],
+        pr_authors: Set[str] = None
     ):
         """Print the review balance table."""
         print("\n" + "="*80)
@@ -89,6 +94,11 @@ class OutputFormatter:
             their_reviews = reviewed_by_others[user]
             balance = their_reviews.lines_reviewed - my_reviews.lines_reviewed
             total_prs = my_reviews.prs_reviewed + their_reviews.prs_reviewed
+
+            # Filter out users who have not opened any PRs (only if flag is set)
+            # Check if user is in pr_authors set (which includes all PR authors from analyzed PRs)
+            if self.filter_non_pr_authors and pr_authors is not None and user not in pr_authors:
+                continue
 
             review_balance.append({
                 'user': user,
@@ -289,16 +299,23 @@ class OutputFormatter:
         self,
         all_users: Set[str],
         reviewed_by_me: Dict[str, ReviewStats],
-        reviewed_by_others: Dict[str, ReviewStats]
+        reviewed_by_others: Dict[str, ReviewStats],
+        pr_authors: Set[str] = None
     ):
         """Print detailed review history for each user."""
         print("\n" + "="*80)
         print("DETAILED REVIEW HISTORY")
         print("="*80)
 
+        # Filter users based on filter_non_pr_authors flag
+        filtered_users = all_users
+        if self.filter_non_pr_authors and pr_authors is not None:
+            # Filter out users who never opened PRs (i.e., not in pr_authors set)
+            filtered_users = {user for user in all_users if user in pr_authors}
+
         # Sort users by total interaction
         sorted_users = sorted(
-            all_users,
+            filtered_users,
             key=lambda u: (
                 reviewed_by_me[u].prs_reviewed +
                 reviewed_by_others[u].prs_reviewed
@@ -354,23 +371,31 @@ class OutputFormatter:
     def _print_overall_stats(
         self,
         reviewed_by_me: Dict[str, ReviewStats],
-        reviewed_by_others: Dict[str, ReviewStats]
+        reviewed_by_others: Dict[str, ReviewStats],
+        pr_authors: Set[str] = None
     ):
         """Print overall statistics."""
         print(f"\n{'='*80}")
         print("OVERALL STATISTICS")
         print(f"{'='*80}")
 
-        total_reviewed_by_me = sum(s.prs_reviewed for s in reviewed_by_me.values())
-        total_reviewed_by_others = sum(s.prs_reviewed for s in reviewed_by_others.values())
-        total_lines_by_me = sum(s.lines_reviewed for s in reviewed_by_me.values())
-        total_lines_by_others = sum(s.lines_reviewed for s in reviewed_by_others.values())
-        total_additions_by_me = sum(s.additions_reviewed for s in reviewed_by_me.values())
-        total_additions_by_others = sum(s.additions_reviewed for s in reviewed_by_others.values())
-        total_deletions_by_me = sum(s.deletions_reviewed for s in reviewed_by_me.values())
-        total_deletions_by_others = sum(s.deletions_reviewed for s in reviewed_by_others.values())
-
+        # Filter users based on filter_non_pr_authors flag
         all_users = set(reviewed_by_me.keys()) | set(reviewed_by_others.keys())
+        if self.filter_non_pr_authors and pr_authors is not None:
+            # Filter out users who never opened PRs (i.e., not in pr_authors set)
+            filtered_users = {user for user in all_users if user in pr_authors}
+        else:
+            filtered_users = all_users
+
+        # Calculate stats only for filtered users
+        total_reviewed_by_me = sum(reviewed_by_me[u].prs_reviewed for u in filtered_users)
+        total_reviewed_by_others = sum(reviewed_by_others[u].prs_reviewed for u in filtered_users)
+        total_lines_by_me = sum(reviewed_by_me[u].lines_reviewed for u in filtered_users)
+        total_lines_by_others = sum(reviewed_by_others[u].lines_reviewed for u in filtered_users)
+        total_additions_by_me = sum(reviewed_by_me[u].additions_reviewed for u in filtered_users)
+        total_additions_by_others = sum(reviewed_by_others[u].additions_reviewed for u in filtered_users)
+        total_deletions_by_me = sum(reviewed_by_me[u].deletions_reviewed for u in filtered_users)
+        total_deletions_by_others = sum(reviewed_by_others[u].deletions_reviewed for u in filtered_users)
 
         print(f"\nTotal PRs I reviewed: {total_reviewed_by_me}")
         print(f"Total PRs others reviewed of mine: {total_reviewed_by_others}")
@@ -380,4 +405,4 @@ class OutputFormatter:
         print(f"\nTotal lines others reviewed: {total_lines_by_others:,}")
         print(f"  +lines: {total_additions_by_others:,}")
         print(f"  -lines: {total_deletions_by_others:,}")
-        print(f"\nNumber of collaborators: {len(all_users)}")
+        print(f"\nNumber of collaborators: {len(filtered_users)}")

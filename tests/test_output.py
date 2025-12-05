@@ -780,5 +780,138 @@ class TestReviewRequestedIndicator:
             assert 'bob' in output
 
 
+class TestFilterNonPRAuthors:
+    """Test cases for filtering out users who haven't opened any PRs."""
+
+    @pytest.fixture
+    def mixed_user_stats(self):
+        """Create statistics with users who opened PRs and users who only reviewed."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        # alice: I reviewed their PRs, they reviewed mine
+        reviewed_by_me['alice'].prs_reviewed = 2
+        reviewed_by_me['alice'].lines_reviewed = 200
+        reviewed_by_me['alice'].additions_reviewed = 150
+        reviewed_by_me['alice'].deletions_reviewed = 50
+
+        reviewed_by_others['alice'].prs_reviewed = 3
+        reviewed_by_others['alice'].lines_reviewed = 300
+        reviewed_by_others['alice'].additions_reviewed = 250
+        reviewed_by_others['alice'].deletions_reviewed = 50
+
+        # bob: I reviewed their PRs, they reviewed mine
+        reviewed_by_me['bob'].prs_reviewed = 1
+        reviewed_by_me['bob'].lines_reviewed = 100
+        reviewed_by_me['bob'].additions_reviewed = 80
+        reviewed_by_me['bob'].deletions_reviewed = 20
+
+        reviewed_by_others['bob'].prs_reviewed = 2
+        reviewed_by_others['bob'].lines_reviewed = 150
+        reviewed_by_others['bob'].additions_reviewed = 120
+        reviewed_by_others['bob'].deletions_reviewed = 30
+
+        # charlie: Only reviewed my PRs, never opened any PRs
+        reviewed_by_others['charlie'].prs_reviewed = 2
+        reviewed_by_others['charlie'].lines_reviewed = 100
+        reviewed_by_others['charlie'].additions_reviewed = 80
+        reviewed_by_others['charlie'].deletions_reviewed = 20
+        # charlie has 0 PRs I reviewed (not in reviewed_by_me dict)
+
+        # david: Only reviewed my PRs, never opened any PRs
+        reviewed_by_others['david'].prs_reviewed = 1
+        reviewed_by_others['david'].lines_reviewed = 50
+        reviewed_by_others['david'].additions_reviewed = 40
+        reviewed_by_others['david'].deletions_reviewed = 10
+
+        open_prs_by_author = {}
+
+        return reviewed_by_me, reviewed_by_others, open_prs_by_author
+
+    def test_filter_non_pr_authors_enabled(self, mixed_user_stats):
+        """Test that users who haven't opened PRs are filtered out when flag is True."""
+        reviewed_by_me, reviewed_by_others, open_prs_by_author = mixed_user_stats
+        formatter = OutputFormatter('test_user', filter_non_pr_authors=True)
+
+        # alice and bob are PR authors, charlie and david are not
+        pr_authors = {'alice', 'bob'}
+
+        with patch('sys.stdout', new=StringIO()) as fake_output:
+            formatter.print_summary(reviewed_by_me, reviewed_by_others, open_prs_by_author, pr_authors)
+            output = fake_output.getvalue()
+
+            # alice and bob should appear (they opened PRs)
+            assert 'alice' in output
+            assert 'bob' in output
+
+            # charlie and david should NOT appear (they only reviewed, never opened PRs)
+            assert 'charlie' not in output
+            assert 'david' not in output
+
+    def test_filter_non_pr_authors_disabled(self, mixed_user_stats):
+        """Test that all users appear when filter_non_pr_authors is False."""
+        reviewed_by_me, reviewed_by_others, open_prs_by_author = mixed_user_stats
+        formatter = OutputFormatter('test_user', filter_non_pr_authors=False)
+
+        with patch('sys.stdout', new=StringIO()) as fake_output:
+            formatter.print_summary(reviewed_by_me, reviewed_by_others, open_prs_by_author)
+            output = fake_output.getvalue()
+
+            # All users should appear
+            assert 'alice' in output
+            assert 'bob' in output
+            assert 'charlie' in output
+            assert 'david' in output
+
+    def test_filter_non_pr_authors_default(self, mixed_user_stats):
+        """Test that filtering is disabled by default."""
+        reviewed_by_me, reviewed_by_others, open_prs_by_author = mixed_user_stats
+        formatter = OutputFormatter('test_user')  # No filter_non_pr_authors parameter
+
+        with patch('sys.stdout', new=StringIO()) as fake_output:
+            formatter.print_summary(reviewed_by_me, reviewed_by_others, open_prs_by_author)
+            output = fake_output.getvalue()
+
+            # All users should appear (default is False)
+            assert 'alice' in output
+            assert 'bob' in output
+            assert 'charlie' in output
+            assert 'david' in output
+
+    def test_filter_non_pr_authors_with_only_reviewers(self):
+        """Test filtering when only reviewers exist (no PR authors)."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        # Only users who reviewed, no users who opened PRs
+        reviewed_by_others['reviewer1'].prs_reviewed = 2
+        reviewed_by_others['reviewer1'].lines_reviewed = 100
+        reviewed_by_others['reviewer2'].prs_reviewed = 1
+        reviewed_by_others['reviewer2'].lines_reviewed = 50
+
+        open_prs_by_author = {}
+        pr_authors = set()  # No PR authors
+        formatter = OutputFormatter('test_user', filter_non_pr_authors=True)
+
+        with patch('sys.stdout', new=StringIO()) as fake_output:
+            formatter.print_summary(reviewed_by_me, reviewed_by_others, open_prs_by_author, pr_authors)
+            output = fake_output.getvalue()
+
+            # No users should appear in the table
+            assert 'reviewer1' not in output
+            assert 'reviewer2' not in output
+
+    def test_filter_non_pr_authors_initialization(self):
+        """Test that filter_non_pr_authors is properly initialized."""
+        formatter1 = OutputFormatter('test_user', filter_non_pr_authors=True)
+        assert formatter1.filter_non_pr_authors is True
+
+        formatter2 = OutputFormatter('test_user', filter_non_pr_authors=False)
+        assert formatter2.filter_non_pr_authors is False
+
+        formatter3 = OutputFormatter('test_user')
+        assert formatter3.filter_non_pr_authors is False
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

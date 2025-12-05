@@ -59,6 +59,9 @@ class GitHubReviewAnalyzer:
         self.reviewed_by_me: Dict[str, ReviewStats] = defaultdict(ReviewStats)
         self.reviewed_by_others: Dict[str, ReviewStats] = defaultdict(ReviewStats)
 
+        # Track all users who have authored PRs (not just those I reviewed)
+        self.pr_authors: Set[str] = set()
+
         # Store repositories for later use
         self.repositories: List[str] = []
 
@@ -532,6 +535,10 @@ class GitHubReviewAnalyzer:
         }
 
         with self._stats_lock:
+            # Track PR author (unless it's me)
+            if pr_author != self.username:
+                self.pr_authors.add(pr_author)
+
             if pr_author == self.username:
                 # Others reviewed my PR
                 for reviewer, activity in reviewer_activity.items():

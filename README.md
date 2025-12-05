@@ -44,7 +44,24 @@ Tests are automatically run on every push to the `main` branch or any feature br
 
 ## Usage
 
-### Interactive Mode
+
+### Environment Variables
+
+You can configure the script using environment variables in your `.env` file:
+
+- `GITHUB_USERNAME`: Your GitHub username
+- `GITHUB_TOKEN`: Your GitHub personal access token
+- `GITHUB_REPOS`: Comma-separated list of repositories (e.g., `owner/repo1,owner/repo2`)
+- `ANALYSIS_MONTHS`: Number of months to analyze (default: 3)
+- `EXCLUDED_USERS`: Comma-separated list of users to exclude from analysis
+- `USE_CACHE`: Enable/disable caching (default: true)
+- `SORT_BY`: Column to sort the review balance table by (default: total_prs)
+- `SHOW_EXTENDED_REPORT`: Show detailed review history per user (default: false)
+- `SHOW_OVERALL_STATISTICS`: Show overall statistics section (default: true)
+- `MAX_REVIEW_COUNT_THRESHOLD`: Filter out PRs with N or more reviews from the open PRs list (default: no filtering)
+- `FILTER_NON_PR_AUTHORS`: Filter out users who have not opened any PRs (default: true)
+
+### How to Run The script
 
 Simply run the script and follow the prompts (or provide parameters via `.env` file):
 
@@ -81,93 +98,13 @@ The output consists of three main sections:
 
 ## Example Output
 
-Below is a sample output (with anonymized usernames):
+### Review Balance Table
 
-```
-GitHub PR Review Analyzer
-================================================================================
-11/22/2025 08:54:33 PM INFO: Starting analysis for user: john-doe
-11/22/2025 08:54:33 PM INFO: Using repositories from environment: acme-corp/awesome-app
-11/22/2025 08:54:33 PM INFO: Using time range from environment: 6 months
-11/22/2025 08:54:33 PM INFO: Sorting review balance table by: balance
-11/22/2025 08:54:33 PM INFO: Excluding generated files from line count calculations
+![Review Balance Table Example](assets/tableExample.png)
 
-Fetching pull requests from acme-corp/awesome-app...
-  Fetching open PRs... fetched 45 PRs
-  Fetching closed PRs... fetched 198 PRs
-Found 198 PRs in the last 6 months
-Analyzing 198 PRs...
-  Progress: 50/198 PRs analyzed
-  Progress: 150/198 PRs analyzed
-  Progress: 198/198 PRs analyzed
-Completed analysis of acme-corp/awesome-app
+### Open PRs That Need Your Review
 
-================================================================================
-REVIEW SUMMARY FOR john-doe
-================================================================================
-
-================================================================================
-REVIEW BALANCE & NEXT ACTIONS
-================================================================================
-
-Review Balance (lines reviewed):
-User              Total PRs  Their PRs    My PRs    They reviewed      I reviewed         Balance    Action
---------------------------------------------------------------------------------------------------------------
-alice-smith       45         5            40        +9,172/-3,347      +2,752/-2,305      +7,462     → I should review their PRs
-bob-jones         20         7            13        +6,582/-1,420      +1,601/-546        +5,855     → I should review their PRs
-charlie-brown     15         2            13        +3,749/-433        +421/-89           +3,750     → I should review their PRs
-diana-prince      12         0            12        +2,728/-916        +0/-0              +3,644     → I should review their PRs
-eve-wilson        8          3            5         +2,320/-84         +863/-571          +970       → I should review their PRs
-frank-castle      5          0            5         +549/-251          +0/-0              +800       → I should review their PRs
-grace-hopper      2          1            1         +78/-63            +146/-7            -12        ← They should review my PRs
-henry-ford        5          2            3         +399/-347          +838/-308          -400       ← They should review my PRs
-iris-west         5          2            3         +104/-202          +1,794/-491        -1,979     ← They should review my PRs
-jack-ryan         3          2            1         +327/-204          +1,920/-2,568      -3,957     ← They should review my PRs
-kate-bishop       5          3            2         +656/-508          +5,458/-1,006      -5,300     ← They should review my PRs
-
-================================================================================
-OPEN PRs THAT NEED YOUR REVIEW
-================================================================================
-
-You have 12 open PR(s) to review:
-
-From diana-prince (Priority: You owe them 3,644 lines):
-  • [awesome-app] #1234: Feature: Add user authentication system
-    https://github.com/acme-corp/awesome-app/pull/1234 (+346 / -245 lines)
-  • [awesome-app] #1256: Fix: Resolve memory leak in data processor
-    https://github.com/acme-corp/awesome-app/pull/1256 (+189 / -52 lines)
-
-From bob-jones (Priority: You owe them 5,855 lines):
-  • [awesome-app] #1289: Refactor: Modernize API endpoints
-    https://github.com/acme-corp/awesome-app/pull/1289 (+951 / -412 lines)
-  • [awesome-app] #1301: Docs: Update deployment guide
-    https://github.com/acme-corp/awesome-app/pull/1301 (+112 / -8 lines)
-
-From eve-wilson (Priority: You owe them 970 lines):
-  • [awesome-app] #1198: Feature: Add dark mode support
-    https://github.com/acme-corp/awesome-app/pull/1198 (+652 / -221 lines)
-
-From iris-west (Priority: They owe you 1,979 lines):
-  • [awesome-app] #1145: Test: Improve integration test coverage
-    https://github.com/acme-corp/awesome-app/pull/1145 (+487 / -156 lines)
-```
-
-### Understanding the Output
-
-**Review Balance Table:**
-- **Positive Balance** (→): You owe them reviews - prioritize reviewing their PRs
-- **Negative Balance** (←): They owe you reviews - they should review your PRs
-- **Balance calculation**: (lines they reviewed of yours) - (lines you reviewed of theirs)
-
-**Open PRs Section:**
-- Automatically prioritized by review balance
-- Shows PRs from people you owe the most reviews to first
-- Includes clickable GitHub links and line counts
-
-**Detailed History:**
-- Complete breakdown per collaborator
-- All PRs listed with titles and links
-- Full metrics including comments and review events
+![Open PRs Example](assets/PRsToReviewExample.png)
 
 ## Caching
 
@@ -215,6 +152,7 @@ You can configure the script using environment variables in your `.env` file:
 - `SHOW_EXTENDED_REPORT`: Show detailed review history per user (default: false)
 - `SHOW_OVERALL_STATISTICS`: Show overall statistics section (default: true)
 - `MAX_REVIEW_COUNT_THRESHOLD`: Filter out PRs with N or more reviews from the open PRs list (default: no filtering)
+- `FILTER_NON_PR_AUTHORS`: Filter out users who have not opened any PRs (default: true)
 
 ### Extended Report
 
