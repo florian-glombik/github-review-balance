@@ -31,36 +31,6 @@ The script generates a comprehensive report with **color-coded sections** for ea
 - Full list of PRs you reviewed with titles and links
 - Full list of PRs they reviewed with titles and links
 
-## Caching
-
-The script automatically caches API responses to `.github_review_cache.json` in the current directory. This significantly speeds up subsequent runs by avoiding redundant API calls.
-
-### Cache Features
-
-- **Automatic**: Caching is enabled by default
-- **Smart PR-state aware**: Only caches data for closed PRs (open PRs always fetch fresh data)
-- **Permanent**: Cache entries never expire (closed PRs don't change)
-- **Selective**: Only fetches new data when not in cache
-- **Persistent**: Cache is saved to disk and reused across runs indefinitely
-
-### Cache Control
-
-To disable caching, set the `USE_CACHE` environment variable:
-
-```bash
-# Disable caching for a single run
-USE_CACHE=false python3 github-review-analyzer.py
-
-# Or in your .env file
-USE_CACHE=false
-```
-
-To clear the cache, simply delete the cache file:
-
-```bash
-rm .github_review_cache.json
-```
-
 ## Prerequisites
 
 - Python 3.7+
@@ -220,6 +190,36 @@ SORT_BY=user python3 github-review-analyzer.py
 
 # Or in your .env file
 SORT_BY=balance
+```
+
+### Caching
+
+The script automatically caches API responses to `.github_review_cache.json` in the current directory. This significantly speeds up subsequent runs by avoiding redundant API calls.
+
+#### Cache Features
+
+- **Automatic**: Caching is enabled by default
+- **Smart PR-state aware**: Only caches data for closed PRs (open PRs always fetch fresh data)
+- **Permanent**: Cache entries never expire (closed PRs don't change)
+- **Selective**: Only fetches new data when not in cache
+- **Persistent**: Cache is saved to disk and reused across runs indefinitely
+
+#### Cache Control
+
+To disable caching, set the `USE_CACHE` environment variable:
+
+```bash
+# Disable caching for a single run
+USE_CACHE=false python3 github-review-analyzer.py
+
+# Or in your .env file
+USE_CACHE=false
+```
+
+To clear the cache, simply delete the cache file:
+
+```bash
+rm .github_review_cache.json
 ```
 
 ## Rate Limits
