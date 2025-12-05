@@ -13,53 +13,6 @@ A Python script to analyze GitHub pull request review activity between you and o
 - 🔓 Includes open (unmerged) PRs in analysis
 - 📝 List all reviewed PRs with clickable links
 
-## Prerequisites
-
-- Python 3.7+
-- `requests` library
-- GitHub Personal Access Token (recommended for higher rate limits)
-
-## Installation
-
-1. Install required dependencies:
-    ```bash
-     pip install -r requirements-review-analyzer.txt
-    ```
-   
-2. Create env file (optional but recommended)
-
-    ```bash
-    cp .env.example .env
-    ```
-
-3. Replace the placeholders in the `.env` file
-
-## Usage
-
-### Environment Variables
-
-You can configure the script using environment variables in your `.env` file:
-
-- `GITHUB_USERNAME`: Your GitHub username
-- `GITHUB_TOKEN`: Your GitHub personal access token
-- `GITHUB_REPOS`: Comma-separated list of repositories (e.g., `owner/repo1,owner/repo2`)
-- `ANALYSIS_MONTHS`: Number of months to analyze (default: 3)
-- `EXCLUDED_USERS`: Comma-separated list of users to exclude from analysis
-- `USE_CACHE`: Enable/disable caching (default: true)
-- `SORT_BY`: Column to sort the review balance table by (default: total_prs)
-- `SHOW_EXTENDED_REPORT`: Show detailed review history per user (default: false)
-- `SHOW_OVERALL_STATISTICS`: Show overall statistics section (default: true)
-- `MAX_REVIEW_COUNT_THRESHOLD`: Filter out PRs with N or more reviews from the open PRs list (default: no filtering)
-- `FILTER_NON_PR_AUTHORS`: Filter out users who have not opened any PRs (default: true)
-
-### How to Run The script
-
-Simply run the script and follow the prompts (or provide parameters via `.env` file):
-
-```bash
-python3 github-review-analyzer.py
-```
-
 ## Output
 
 The script generates a comprehensive report with **color-coded sections** for easy readability.
@@ -106,6 +59,53 @@ To clear the cache, simply delete the cache file:
 
 ```bash
 rm .github_review_cache.json
+```
+
+## Prerequisites
+
+- Python 3.7+
+- `requests` library
+- GitHub Personal Access Token (recommended for higher rate limits)
+
+## Installation
+
+1. Install required dependencies:
+    ```bash
+     pip install -r requirements-review-analyzer.txt
+    ```
+   
+2. Create env file (optional but recommended)
+
+    ```bash
+    cp .env.example .env
+    ```
+
+3. Replace the placeholders in the `.env` file
+
+## Usage
+
+### Environment Variables
+
+You can configure the script using environment variables in your `.env` file:
+
+- `GITHUB_USERNAME`: Your GitHub username
+- `GITHUB_TOKEN`: Your GitHub personal access token
+- `GITHUB_REPOS`: Comma-separated list of repositories (e.g., `owner/repo1,owner/repo2`)
+- `ANALYSIS_MONTHS`: Number of months to analyze (default: 3)
+- `EXCLUDED_USERS`: Comma-separated list of users to exclude from analysis
+- `USE_CACHE`: Enable/disable caching (default: true)
+- `SORT_BY`: Column to sort the review balance table by (default: total_prs)
+- `SHOW_EXTENDED_REPORT`: Show detailed review history per user (default: false)
+- `SHOW_OVERALL_STATISTICS`: Show overall statistics section (default: true)
+- `MAX_REVIEW_COUNT_THRESHOLD`: Filter out PRs with N or more reviews from the open PRs list (default: no filtering)
+- `FILTER_NON_PR_AUTHORS`: Filter out users who have not opened any PRs (default: true)
+
+### How to Run The script
+
+Simply run the script and follow the prompts (or provide parameters via `.env` file):
+
+```bash
+python3 github-review-analyzer.py
 ```
 
 ## Configuration Options
