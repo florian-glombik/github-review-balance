@@ -6,14 +6,12 @@ A Python script to analyze GitHub pull request review activity between you and o
 
 - 📊 Track PRs you reviewed vs. PRs others reviewed for you
 - 📈 Calculate lines of code reviewed in both directions
-- ➕ Separate tracking of additions (+lines) and deletions (-lines)
 - 🔢 Count review events (approvals, change requests)
-- 💬 Track number of comments written
-- 📝 List all reviewed PRs with clickable links
 - ⚖️ Calculate review balance (offset) between users
 - 🔀 Sortable review balance table by different columns
-- 💾 Smart caching system to speed up subsequent runs
+- 💾 Caching to speed up subsequent runs
 - 🔓 Includes open (unmerged) PRs in analysis
+- 📝 List all reviewed PRs with clickable links
 
 ## Prerequisites
 
@@ -36,14 +34,7 @@ A Python script to analyze GitHub pull request review activity between you and o
 
 3. Replace the placeholders in the `.env` file
 
-
-### Continuous Integration
-
-Tests are automatically run on every push to the `main` branch or any feature branch via GitHub Actions. The workflow tests against multiple Python versions (3.9, 3.10, 3.11, 3.12) to ensure compatibility.
-
-
 ## Usage
-
 
 ### Environment Variables
 
@@ -73,38 +64,19 @@ python3 github-review-analyzer.py
 
 The script generates a comprehensive report with **color-coded sections** for easy readability.
 
-### Report Structure
-
-The output consists of three main sections:
-
-1. **Review Balance & Next Actions** - Overview table showing:
-    - Your review balance with each collaborator (positive = you owe reviews, negative = they owe you)
-    - Total PRs reviewed in both directions
-    - Action indicators: `→` (you should review their PRs) or `←` (they should review yours)
-    - Sortable by various metrics (balance, total PRs, user, etc.)
-
-2. **Open PRs That Need Your Review** - Actionable list showing:
-    - Currently open PRs waiting for your review
-    - Automatically prioritized by who you owe the most reviews to (color-coded: green/yellow/red)
-    - Direct GitHub links and line counts for each PR
-    - Review count for each PR (how many people have already reviewed it)
-    - Indicates PRs where your review was explicitly requested
-    - Optional filtering by review count threshold (excludes PRs with sufficient reviews, except those requesting you)
-
-3. **Detailed Review History** - Deep dive per collaborator:
-    - Complete metrics: PRs reviewed, lines reviewed, review events, comments
-    - Full list of PRs you reviewed with titles and links
-    - Full list of PRs they reviewed with titles and links
-
-## Example Output
-
-### Review Balance Table
+### 1. Review Balance Table
 
 ![Review Balance Table Example](assets/tableExample.png)
 
-### Open PRs That Need Your Review
+### 2. Open PRs That Need Your Review
 
 ![Open PRs Example](assets/PRsToReviewExample.png)
+
+
+### 3. Deep dive per collaborator
+- Complete metrics: PRs reviewed, lines reviewed, review events, comments
+- Full list of PRs you reviewed with titles and links
+- Full list of PRs they reviewed with titles and links
 
 ## Caching
 
@@ -248,19 +220,6 @@ SORT_BY=user python3 github-review-analyzer.py
 
 # Or in your .env file
 SORT_BY=balance
-```
-
-Example `.env` file:
-```bash
-GITHUB_USERNAME=your-username
-GITHUB_TOKEN=ghp_your_token_here
-GITHUB_REPOS=ls1intum/Artemis
-ANALYSIS_MONTHS=6
-EXCLUDED_USERS=coderabbitai[bot],dependabot,bot-user
-USE_CACHE=true
-SORT_BY=balance
-SHOW_EXTENDED_REPORT=false
-SHOW_OVERALL_STATISTICS=true
 ```
 
 ## Rate Limits
