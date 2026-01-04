@@ -189,6 +189,23 @@ def main():
         analyzer.pr_authors
     )
 
+    # Generate and save HTML report
+    logging.info("Generating HTML report...")
+    html_path = output_formatter.save_html(
+        analyzer.reviewed_by_me,
+        analyzer.reviewed_by_others,
+        open_prs_by_author,
+        analyzer.pr_authors
+    )
+
+    print("\n" + "="*80)
+    print("HTML REPORT SAVED")
+    print("="*80)
+    print(f"\nOpen this file in your browser to view the results:")
+    print(f"\n{html_path}\n")
+    print("You can now close this terminal and open the HTML file in your browser.")
+    print("="*80)
+
 
 if __name__ == "__main__":
     main()
