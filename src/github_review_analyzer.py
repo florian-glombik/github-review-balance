@@ -670,8 +670,20 @@ class GitHubReviewAnalyzer:
             my_reviews = [r for r in reviews if r['user']['login'] == self.username]
             my_comments = [c for c in comments if c['user']['login'] == self.username]
 
+            # Track if my review was dismissed
+            my_review_dismissed = False
+            my_previous_review_count = 0
+
             if my_reviews or my_comments:
-                return None  # Already reviewed
+                # Check if any of my reviews were dismissed
+                for review in my_reviews:
+                    my_previous_review_count += 1
+                    if review.get('state') == 'DISMISSED':
+                        my_review_dismissed = True
+
+                # If I have non-dismissed reviews or comments, I've already reviewed and shouldn't review again
+                if not my_review_dismissed:
+                    return None  # Already reviewed and not dismissed
 
             # Create PR info
             additions = 0
@@ -752,6 +764,12 @@ class GitHubReviewAnalyzer:
 
             review_count = len(unique_reviewers)
 
+            # Extract label names
+            labels = []
+            if pr_details_response.status_code == 200:
+                pr_details = pr_details_response.json()
+                labels = [label['name'] for label in pr_details.get('labels', [])]
+
             return {
                 'number': pr_number,
                 'title': pr['title'],
@@ -763,7 +781,10 @@ class GitHubReviewAnalyzer:
                 'updated_at': pr['updated_at'],
                 'review_count': review_count,
                 'requested_my_review': requested_my_review,
-                'changes_requested': changes_requested
+                'changes_requested': changes_requested,
+                'labels': labels,
+                'my_review_dismissed': my_review_dismissed,
+                'my_previous_review_count': my_previous_review_count
             }
 
         except Exception as e:
@@ -971,6 +992,7 @@ class GitHubReviewAnalyzer:
                         deletions = 0
                         requested_reviewers = []
                         review_count = 0
+                        labels = []
 
                         if pr_details_response.status_code == 200:
                             pr_details = pr_details_response.json()
@@ -981,6 +1003,9 @@ class GitHubReviewAnalyzer:
                             requested_reviewers_list = pr_details.get('requested_reviewers', [])
                             requested_reviewers = [r['login'] for r in requested_reviewers_list]
 
+                            # Get labels
+                            labels = [label['name'] for label in pr_details.get('labels', [])]
+
                             # Apply file filtering if enabled
                             if self.exclude_generated_files:
                                 filtered_counts = self._get_filtered_line_counts(repo, pr_number, should_cache=True)
@@ -988,13 +1013,37 @@ class GitHubReviewAnalyzer:
                                     additions = filtered_counts['additions']
                                     deletions = filtered_counts['deletions']
 
-                        # Count unique reviewers (excluding me and excluded users)
+                        # Count unique reviewers and check for active change requests (excluding me and excluded users)
                         unique_reviewers = set()
+                        requested_reviewer_logins = set(requested_reviewers)
+                        reviews_by_reviewer = defaultdict(list)
+
                         for review in reviews:
                             reviewer = review['user']['login']
                             if reviewer != self.username and reviewer not in self.excluded_users:
                                 unique_reviewers.add(reviewer)
+                                reviews_by_reviewer[reviewer].append(review)
+
                         review_count = len(unique_reviewers)
+
+                        # Check for active change requests
+                        has_change_requests = False
+                        for reviewer, reviewer_reviews in reviews_by_reviewer.items():
+                            # Skip reviewers who are in the requested_reviewers list (review was re-requested)
+                            if reviewer in requested_reviewer_logins:
+                                continue
+
+                            # Sort by submitted_at to get the most recent review
+                            sorted_reviews = sorted(
+                                reviewer_reviews,
+                                key=lambda r: r.get('submitted_at', ''),
+                                reverse=True
+                            )
+                            if sorted_reviews:
+                                latest_review = sorted_reviews[0]
+                                if latest_review.get('state') == 'CHANGES_REQUESTED':
+                                    has_change_requests = True
+                                    break
 
                         my_prs.append({
                             'number': pr_number,
@@ -1006,7 +1055,9 @@ class GitHubReviewAnalyzer:
                             'created_at': pr['created_at'],
                             'updated_at': pr['updated_at'],
                             'review_count': review_count,
-                            'requested_reviewers': requested_reviewers
+                            'requested_reviewers': requested_reviewers,
+                            'labels': labels,
+                            'has_change_requests': has_change_requests
                         })
                     except Exception as e:
                         logging.warning(f"Error fetching PR details for #{pr_number}: {e}")

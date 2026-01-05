@@ -771,6 +771,26 @@ class OutputFormatter:
             color: white;
         }}
 
+        .badge-ready-to-merge {{
+            background: #28a745;
+            color: white;
+        }}
+
+        .badge-developer-approved {{
+            background: #007bff;
+            color: white;
+        }}
+
+        .badge-maintainer-approved {{
+            background: #6f42c1;
+            color: white;
+        }}
+
+        .badge-re-review {{
+            background: #fd7e14;
+            color: white;
+        }}
+
         .no-data {{
             text-align: center;
             padding: 40px;
@@ -1238,17 +1258,27 @@ class OutputFormatter:
             total_lines = additions + deletions
             review_count = pr.get('review_count', 0)
             requested_reviewers = pr.get('requested_reviewers', [])
+            labels = pr.get('labels', [])
+            has_change_requests = pr.get('has_change_requests', False)
 
             # Generate messages for this PR in Slack format
-            # Slack uses *text* for bold and <url|text> for links
-            # Remove backticks from title as they break Slack link formatting
+            # Slack uses *text* for bold
+            # Note: Don't use <url|text> syntax as it doesn't work with auto-format
+            # Remove backticks from title
             slack_title = pr_title.replace('`', '')
 
-            code_review_message = f"Hey everyone, I need your help for *a code review* on this PR <{pr_url}|{slack_title}> (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
-            code_review_message += "As always, I am happy to trade reviews :smile:"
+            # Build message with PR name and URL separately (auto-format will linkify the URL)
+            code_review_message = f"Hey everyone, I need your help for *a code review* on this PR: *{slack_title}*\n"
+            code_review_message += f"{pr_url}\n"
+            code_review_message += f"(+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
+            code_review_message += "As always, I am happy to trade reviews :smile:\n\n"
+            code_review_message += "_Note: Press CMD/CTRL + Shift + F before sending to apply formatting_"
 
-            testing_message = f"Hey everyone, I need your help for *testing* on this PR <{pr_url}|{slack_title}> (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
-            testing_message += "As always, I am happy to trade reviews :smile:"
+            testing_message = f"Hey everyone, I need your help for *testing* on this PR: *{slack_title}*\n"
+            testing_message += f"{pr_url}\n"
+            testing_message += f"(+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
+            testing_message += "As always, I am happy to trade reviews :smile:\n\n"
+            testing_message += "_Note: Press CMD/CTRL + Shift + F before sending to apply formatting_"
 
             # Escape only quotes and backslashes for HTML data attribute (preserve Slack formatting)
             escaped_code_message = code_review_message.replace('\\', '\\\\').replace('"', '&quot;')
@@ -1259,10 +1289,26 @@ class OutputFormatter:
             html += f'<div style="font-size: 0.9em; color: #666; margin-bottom: 5px;"><a href="{pr_url}" target="_blank">{pr_url}</a></div>\n'
             html += f'<div style="font-size: 0.9em; color: #666; margin-bottom: 5px;">(+{additions:,} / -{deletions:,} lines)</div>\n'
 
-            # Display review count and requested reviewers
+            # Display review count, requested reviewers, labels, and change requests
             info_parts = []
+
+            # Change request badge
+            if has_change_requests:
+                info_parts.append(f'<span class="badge badge-changes-requested">CHANGES REQUESTED</span>')
+
+            # Label badges
+            if 'ready to merge' in labels:
+                info_parts.append(f'<span class="badge badge-ready-to-merge">Ready to Merge</span>')
+            if 'developer approved' in labels:
+                info_parts.append(f'<span class="badge badge-developer-approved">Developer Approved</span>')
+            if 'maintainer approved' in labels:
+                info_parts.append(f'<span class="badge badge-maintainer-approved">Maintainer Approved</span>')
+
+            # Review count
             if review_count > 0:
                 info_parts.append(f'<span class="badge badge-reviews">{review_count} review(s)</span>')
+
+            # Requested reviewers
             if requested_reviewers:
                 reviewers_str = ', '.join(requested_reviewers)
                 info_parts.append(f'<span style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: 600; background: #17a2b8; color: white;">Requested: {reviewers_str}</span>')
@@ -1490,6 +1536,9 @@ class OutputFormatter:
                 review_count = pr.get('review_count', 0)
                 requested_my_review = pr.get('requested_my_review', False)
                 changes_requested = pr.get('changes_requested', False)
+                labels = pr.get('labels', [])
+                my_review_dismissed = pr.get('my_review_dismissed', False)
+                my_previous_review_count = pr.get('my_previous_review_count', 0)
 
                 pr_class = priority_class
                 if requested_my_review:
@@ -1498,10 +1547,23 @@ class OutputFormatter:
                 html += f'<li class="pr-item {pr_class}">\n'
                 html += f'<a href="{pr["url"]}" class="pr-item-link" target="_blank">\n'
                 html += f'<div class="pr-title">[{repo_short}] #{pr["number"]}: {pr["title"]}'
+
+                # Add badges
                 if changes_requested:
                     html += '<span class="badge badge-changes-requested">CHANGES REQUESTED</span>'
                 if requested_my_review:
                     html += '<span class="badge badge-requested">REVIEW REQUESTED</span>'
+                if my_review_dismissed:
+                    html += f'<span class="badge badge-re-review">RE-REVIEW ({my_previous_review_count}x reviewed)</span>'
+
+                # Label badges
+                if 'ready to merge' in labels:
+                    html += '<span class="badge badge-ready-to-merge">Ready to Merge</span>'
+                if 'developer approved' in labels:
+                    html += '<span class="badge badge-developer-approved">Developer Approved</span>'
+                if 'maintainer approved' in labels:
+                    html += '<span class="badge badge-maintainer-approved">Maintainer Approved</span>'
+
                 html += f'<span class="badge badge-reviews">{review_count} review(s)</span>'
                 html += '</div>\n'
                 html += f'<div class="pr-meta">'
@@ -1587,17 +1649,27 @@ class OutputFormatter:
                     total_lines = additions + deletions
                     review_count = pr.get('review_count', 0)
                     requested_reviewers = pr.get('requested_reviewers', [])
+                    labels = pr.get('labels', [])
+                    has_change_requests = pr.get('has_change_requests', False)
 
                     # Generate personalized messages for this user in Slack format
-                    # Slack uses *text* for bold and <url|text> for links
-                    # Remove backticks from title as they break Slack link formatting
+                    # Slack uses *text* for bold
+                    # Note: Don't use <url|text> syntax as it doesn't work with auto-format
+                    # Remove backticks from title
                     slack_title = pr_title.replace('`', '')
 
-                    code_review_message = f"Hey {author}, I need your help for *a code review* on this PR <{pr_url}|{slack_title}> (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
-                    code_review_message += "As always, I am happy to trade reviews :smile:"
+                    # Build message with PR name and URL separately (auto-format will linkify the URL)
+                    code_review_message = f"Hey {author}, I need your help for *a code review* on this PR: *{slack_title}*\n"
+                    code_review_message += f"{pr_url}\n"
+                    code_review_message += f"(+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
+                    code_review_message += "As always, I am happy to trade reviews :smile:\n\n"
+                    code_review_message += "_Note: Press CMD/CTRL + Shift + F before sending to apply formatting_"
 
-                    testing_message = f"Hey {author}, I need your help for *testing* on this PR <{pr_url}|{slack_title}> (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
-                    testing_message += "As always, I am happy to trade reviews :smile:"
+                    testing_message = f"Hey {author}, I need your help for *testing* on this PR: *{slack_title}*\n"
+                    testing_message += f"{pr_url}\n"
+                    testing_message += f"(+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
+                    testing_message += "As always, I am happy to trade reviews :smile:\n\n"
+                    testing_message += "_Note: Press CMD/CTRL + Shift + F before sending to apply formatting_"
 
                     # Escape only quotes and backslashes for HTML data attribute (preserve Slack formatting)
                     escaped_code_message = code_review_message.replace('\\', '\\\\').replace('"', '&quot;')
@@ -1608,10 +1680,26 @@ class OutputFormatter:
                     html += f'<div style="font-size: 0.9em; color: #666; margin-bottom: 5px;">{pr_url}</div>\n'
                     html += f'<div style="font-size: 0.9em; color: #666; margin-bottom: 5px;">(+{additions:,} / -{deletions:,} lines)</div>\n'
 
-                    # Display review count and requested reviewers
+                    # Display review count, requested reviewers, labels, and change requests
                     info_parts = []
+
+                    # Change request badge
+                    if has_change_requests:
+                        info_parts.append(f'<span class="badge badge-changes-requested">CHANGES REQUESTED</span>')
+
+                    # Label badges
+                    if 'ready to merge' in labels:
+                        info_parts.append(f'<span class="badge badge-ready-to-merge">Ready to Merge</span>')
+                    if 'developer approved' in labels:
+                        info_parts.append(f'<span class="badge badge-developer-approved">Developer Approved</span>')
+                    if 'maintainer approved' in labels:
+                        info_parts.append(f'<span class="badge badge-maintainer-approved">Maintainer Approved</span>')
+
+                    # Review count
                     if review_count > 0:
                         info_parts.append(f'<span class="badge badge-reviews">{review_count} review(s)</span>')
+
+                    # Requested reviewers
                     if requested_reviewers:
                         reviewers_str = ', '.join(requested_reviewers)
                         info_parts.append(f'<span style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: 600; background: #17a2b8; color: white;">Requested: {reviewers_str}</span>')
