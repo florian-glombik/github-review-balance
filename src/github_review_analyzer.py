@@ -734,33 +734,52 @@ class GitHubReviewAnalyzer:
                 reviewer = review['user']['login']
                 reviews_by_reviewer[reviewer].append(review)
 
-            # Check if any reviewer's latest review is CHANGES_REQUESTED
-            # A reviewer's change request is cleared if they submit ANY new review
-            # (APPROVED, COMMENTED, DISMISSED, etc. - anything other than CHANGES_REQUESTED)
-            # Also skip if the reviewer is in requested_reviewers (review was re-requested)
+            # Check if any reviewer has an active change request
+            # A change request is ACTIVE if:
+            #   - The reviewer has at least one CHANGES_REQUESTED review
+            #   - AND has NOT submitted an APPROVED review after the last CHANGES_REQUESTED
+            #   - AND the review has NOT been DISMISSED
+            #   - AND the reviewer is NOT in requested_reviewers (which means their review is outdated)
+            # Note: COMMENTED reviews do NOT clear a change request!
+            # Note: Being re-requested (in requested_reviewers) means previous reviews are outdated
             changes_requested = False
 
             for reviewer, reviewer_reviews in reviews_by_reviewer.items():
-                # Skip reviewers who are still in the requested_reviewers list
-                # (their review was re-requested, clearing the previous state)
+                # Skip reviewers who are in requested_reviewers - their previous reviews are outdated
+                # When new commits are pushed that address concerns, reviewers are re-requested
+                # and their old CHANGES_REQUESTED reviews are no longer considered active
                 if reviewer in requested_reviewer_logins:
                     continue
 
-                # Sort by submitted_at to get the most recent
+                # Sort by submitted_at (chronological order)
                 sorted_reviews = sorted(
                     reviewer_reviews,
                     key=lambda r: r.get('submitted_at', ''),
-                    reverse=True
+                    reverse=False  # oldest first
                 )
-                if sorted_reviews:
-                    latest_review = sorted_reviews[0]
-                    review_state = latest_review.get('state')
 
-                    # Only count as active change request if their LATEST review is CHANGES_REQUESTED
-                    # (DISMISSED, APPROVED, COMMENTED all clear the change request)
-                    if review_state == 'CHANGES_REQUESTED':
-                        changes_requested = True
-                        break
+                # Check if there's an active change request
+                has_change_request = False
+                last_changes_requested_time = None
+
+                for review in sorted_reviews:
+                    state = review.get('state')
+                    submitted_at = review.get('submitted_at', '')
+
+                    if state == 'CHANGES_REQUESTED':
+                        has_change_request = True
+                        last_changes_requested_time = submitted_at
+                    elif state == 'APPROVED' and last_changes_requested_time:
+                        # APPROVED after CHANGES_REQUESTED clears the change request
+                        if submitted_at > last_changes_requested_time:
+                            has_change_request = False
+                    elif state == 'DISMISSED':
+                        # DISMISSED clears any change request
+                        has_change_request = False
+
+                if has_change_request:
+                    changes_requested = True
+                    break
 
             review_count = len(unique_reviewers)
 
@@ -1027,23 +1046,50 @@ class GitHubReviewAnalyzer:
                         review_count = len(unique_reviewers)
 
                         # Check for active change requests
+                        # A change request is ACTIVE if:
+                        #   - The reviewer has at least one CHANGES_REQUESTED review
+                        #   - AND has NOT submitted an APPROVED review after the last CHANGES_REQUESTED
+                        #   - AND the review has NOT been DISMISSED
+                        #   - AND the reviewer is NOT in requested_reviewers (which means their review is outdated)
+                        # Note: COMMENTED reviews do NOT clear a change request!
+                        # Note: Being re-requested (in requested_reviewers) means previous reviews are outdated
                         has_change_requests = False
                         for reviewer, reviewer_reviews in reviews_by_reviewer.items():
-                            # Skip reviewers who are in the requested_reviewers list (review was re-requested)
+                            # Skip reviewers who are in requested_reviewers - their previous reviews are outdated
+                            # When new commits are pushed that address concerns, reviewers are re-requested
+                            # and their old CHANGES_REQUESTED reviews are no longer considered active
                             if reviewer in requested_reviewer_logins:
                                 continue
 
-                            # Sort by submitted_at to get the most recent review
+                            # Sort by submitted_at (chronological order)
                             sorted_reviews = sorted(
                                 reviewer_reviews,
                                 key=lambda r: r.get('submitted_at', ''),
-                                reverse=True
+                                reverse=False  # oldest first
                             )
-                            if sorted_reviews:
-                                latest_review = sorted_reviews[0]
-                                if latest_review.get('state') == 'CHANGES_REQUESTED':
-                                    has_change_requests = True
-                                    break
+
+                            # Check if there's an active change request
+                            has_change_request = False
+                            last_changes_requested_time = None
+
+                            for review in sorted_reviews:
+                                state = review.get('state')
+                                submitted_at = review.get('submitted_at', '')
+
+                                if state == 'CHANGES_REQUESTED':
+                                    has_change_request = True
+                                    last_changes_requested_time = submitted_at
+                                elif state == 'APPROVED' and last_changes_requested_time:
+                                    # APPROVED after CHANGES_REQUESTED clears the change request
+                                    if submitted_at > last_changes_requested_time:
+                                        has_change_request = False
+                                elif state == 'DISMISSED':
+                                    # DISMISSED clears any change request
+                                    has_change_request = False
+
+                            if has_change_request:
+                                has_change_requests = True
+                                break
 
                         my_prs.append({
                             'number': pr_number,

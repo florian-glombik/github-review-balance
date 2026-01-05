@@ -818,9 +818,11 @@ class TestChangesRequestedDetection:
             cache_file=cache_file,
             use_cache=False
         )
+        # Reset the mock for each test
         analyzer.api_client.get = Mock()
         yield analyzer
 
+        # Clean up
         if os.path.exists(cache_file):
             os.remove(cache_file)
 
@@ -841,7 +843,8 @@ class TestChangesRequestedDetection:
         pr_details_response.json.return_value = {
             'additions': 100,
             'deletions': 50,
-            'requested_reviewers': []
+            'requested_reviewers': [],
+            'labels': []
         }
 
         # Mock reviews - all approved
@@ -895,7 +898,8 @@ class TestChangesRequestedDetection:
             pr_details_response.json.return_value = {
                 'additions': 100,
                 'deletions': 50,
-                'requested_reviewers': []
+                'requested_reviewers': [],
+                'labels': []
             }
 
             # One reviewer requested changes
@@ -907,7 +911,7 @@ class TestChangesRequestedDetection:
                 }
             ]
 
-            analyzer.api_client.get.side_effect = [pr_details_response]
+            analyzer.api_client.get.return_value = pr_details_response
             with patch.object(analyzer, '_get_paginated', side_effect=[reviews, []]):
                 result = analyzer._check_and_create_pr_info('test/repo', pr)
 
@@ -998,7 +1002,11 @@ class TestChangesRequestedDetection:
         assert result['changes_requested'] is False
 
     def test_changes_requested_then_commented(self, mock_analyzer):
-        """Test that changes_requested is False when reviewer comments after requesting changes."""
+        """Test that changes_requested is TRUE when reviewer comments after requesting changes.
+
+        COMMENTED reviews do NOT clear a CHANGES_REQUESTED review.
+        Only APPROVED or DISMISSED reviews clear a change request.
+        """
         pr = {
             'number': 123,
             'user': {'login': 'pr_author'},
@@ -1013,10 +1021,11 @@ class TestChangesRequestedDetection:
         pr_details_response.json.return_value = {
             'additions': 100,
             'deletions': 50,
-            'requested_reviewers': []
+            'requested_reviewers': [],
+            'labels': []
         }
 
-        # Reviewer requested changes, then left a comment
+        # Reviewer requested changes, then left a comment (change request still active!)
         reviews = [
             {
                 'user': {'login': 'reviewer1'},
@@ -1030,15 +1039,21 @@ class TestChangesRequestedDetection:
             }
         ]
 
-        mock_analyzer.api_client.get.side_effect = [pr_details_response]
+        mock_analyzer.api_client.get.return_value = pr_details_response
         with patch.object(mock_analyzer, '_get_paginated', side_effect=[reviews, []]):
             result = mock_analyzer._check_and_create_pr_info('test/repo', pr)
 
         assert result is not None
-        assert result['changes_requested'] is False
+        assert result['changes_requested'] is True
 
     def test_changes_requested_from_rerequested_reviewer(self, mock_analyzer):
-        """Test that changes_requested is False when reviewer is in requested_reviewers list."""
+        """Test that changes_requested is FALSE when reviewer is re-requested.
+
+        Being re-requested means the previous CHANGES_REQUESTED review is OUTDATED.
+        When new commits are pushed addressing concerns, reviewers are re-requested,
+        and their old reviews are no longer considered active.
+        This matches GitHub's UI behavior.
+        """
         pr = {
             'number': 123,
             'user': {'login': 'pr_author'},
@@ -1053,11 +1068,13 @@ class TestChangesRequestedDetection:
         pr_details_response.json.return_value = {
             'additions': 100,
             'deletions': 50,
-            # Reviewer is re-requested, so their previous review should be ignored
+            'labels': [],
+            # Reviewer is re-requested, so their previous CHANGES_REQUESTED is outdated
             'requested_reviewers': [{'login': 'reviewer1'}]
         }
 
-        # Reviewer requested changes but is now re-requested
+        # Reviewer requested changes, then new commits were pushed, and they were re-requested
+        # The change request is now considered outdated (not active)
         reviews = [
             {
                 'user': {'login': 'reviewer1'},
@@ -1066,7 +1083,7 @@ class TestChangesRequestedDetection:
             }
         ]
 
-        mock_analyzer.api_client.get.side_effect = [pr_details_response]
+        mock_analyzer.api_client.get.return_value = pr_details_response
         with patch.object(mock_analyzer, '_get_paginated', side_effect=[reviews, []]):
             result = mock_analyzer._check_and_create_pr_info('test/repo', pr)
 
@@ -1101,7 +1118,8 @@ class TestChangesRequestedDetection:
             pr_details_response.json.return_value = {
                 'additions': 100,
                 'deletions': 50,
-                'requested_reviewers': []
+                'requested_reviewers': [],
+                'labels': []
             }
 
             # Multiple reviewers: one requested changes then dismissed, one still has active request
@@ -1123,7 +1141,7 @@ class TestChangesRequestedDetection:
                 }
             ]
 
-            analyzer.api_client.get.side_effect = [pr_details_response]
+            analyzer.api_client.get.return_value = pr_details_response
             with patch.object(analyzer, '_get_paginated', side_effect=[reviews, []]):
                 result = analyzer._check_and_create_pr_info('test/repo', pr)
 

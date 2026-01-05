@@ -1246,6 +1246,7 @@ class OutputFormatter:
         html += '<details open>\n'
         html += '<summary style="cursor: pointer; font-weight: 600; font-size: 1.5em; color: #667eea; padding: 15px; margin: -20px -20px 20px -20px; background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%); border-radius: 8px; user-select: none;">My Open PRs Needing Review</summary>\n'
         html += f'<p>You have <strong>{len(my_open_prs)}</strong> open PR(s). Click either button to copy a Slack-ready message requesting code review or testing.</p>\n'
+        html += '<p style="background: #fff3cd; border: 1px solid #ffc107; padding: 10px; border-radius: 4px; margin: 10px 0;"><strong>⚠️ Important:</strong> Press <kbd>CMD/CTRL + Shift + F</kbd> before sending the message in Slack to apply formatting!</p>\n'
 
         for pr in my_open_prs:
             repo_name = pr['repo']
@@ -1267,18 +1268,14 @@ class OutputFormatter:
             # Remove backticks from title
             slack_title = pr_title.replace('`', '')
 
-            # Build message with PR name and URL separately (auto-format will linkify the URL)
-            code_review_message = f"Hey everyone, I need your help for *a code review* on this PR: *{slack_title}*\n"
-            code_review_message += f"{pr_url}\n"
-            code_review_message += f"(+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
-            code_review_message += "As always, I am happy to trade reviews :smile:\n\n"
-            code_review_message += "_Note: Press CMD/CTRL + Shift + F before sending to apply formatting_"
+            # Build a message with PR name and URL with line counts directly after
+            code_review_message = f"Hey everyone, I need your help for *2 code reviews* on this PR: *{slack_title}*\n"
+            code_review_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
+            code_review_message += "As always, I am happy to trade reviews :smile:"
 
-            testing_message = f"Hey everyone, I need your help for *testing* on this PR: *{slack_title}*\n"
-            testing_message += f"{pr_url}\n"
-            testing_message += f"(+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
-            testing_message += "As always, I am happy to trade reviews :smile:\n\n"
-            testing_message += "_Note: Press CMD/CTRL + Shift + F before sending to apply formatting_"
+            testing_message = f"Hey everyone, I need your help for *2 manual tests* on this PR: *{slack_title}*\n"
+            testing_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
+            testing_message += "As always, I am happy to trade reviews :smile:"
 
             # Escape only quotes and backslashes for HTML data attribute (preserve Slack formatting)
             escaped_code_message = code_review_message.replace('\\', '\\\\').replace('"', '&quot;')
@@ -1638,6 +1635,7 @@ class OutputFormatter:
                 html += '<details>\n'
                 html += f'<summary style="cursor: pointer; font-weight: 600; color: #667eea; font-size: 1.1em; margin-bottom: 10px;">My PRs for {author} to Review ({len(my_open_prs)})</summary>\n'
                 html += '<p style="font-size: 0.9em; color: #666; margin-bottom: 10px; margin-top: 10px;">Click either button to copy a personalized Slack-ready message requesting code review or testing</p>\n'
+                html += '<p style="background: #fff3cd; border: 1px solid #ffc107; padding: 8px; border-radius: 4px; margin: 10px 0; font-size: 0.85em;"><strong>⚠️ Important:</strong> Press <kbd>CMD/CTRL + Shift + F</kbd> before sending the message in Slack to apply formatting!</p>\n'
 
                 for pr in my_open_prs:
                     repo_name = pr['repo']
@@ -1658,18 +1656,14 @@ class OutputFormatter:
                     # Remove backticks from title
                     slack_title = pr_title.replace('`', '')
 
-                    # Build message with PR name and URL separately (auto-format will linkify the URL)
+                    # Build message with PR name and URL with line counts directly after
                     code_review_message = f"Hey {author}, I need your help for *a code review* on this PR: *{slack_title}*\n"
-                    code_review_message += f"{pr_url}\n"
-                    code_review_message += f"(+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
-                    code_review_message += "As always, I am happy to trade reviews :smile:\n\n"
-                    code_review_message += "_Note: Press CMD/CTRL + Shift + F before sending to apply formatting_"
+                    code_review_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
+                    code_review_message += "As always, I am happy to trade reviews :smile:"
 
-                    testing_message = f"Hey {author}, I need your help for *testing* on this PR: *{slack_title}*\n"
-                    testing_message += f"{pr_url}\n"
-                    testing_message += f"(+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
-                    testing_message += "As always, I am happy to trade reviews :smile:\n\n"
-                    testing_message += "_Note: Press CMD/CTRL + Shift + F before sending to apply formatting_"
+                    testing_message = f"Hey {author}, I need your help for *a manual test* on this PR: *{slack_title}*\n"
+                    testing_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
+                    testing_message += "As always, I am happy to trade reviews :smile:"
 
                     # Escape only quotes and backslashes for HTML data attribute (preserve Slack formatting)
                     escaped_code_message = code_review_message.replace('\\', '\\\\').replace('"', '&quot;')
