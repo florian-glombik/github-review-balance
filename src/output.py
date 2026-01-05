@@ -1269,11 +1269,11 @@ class OutputFormatter:
             slack_title = pr_title.replace('`', '')
 
             # Build a message with PR name and URL with line counts directly after
-            code_review_message = f"Hey everyone, I need your help for *2 code reviews* on this PR: *{slack_title}*\n"
+            code_review_message = f"Hey everyone, I need your help for *2 code reviews* on: *{slack_title}*\n"
             code_review_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
             code_review_message += "As always, I am happy to trade reviews :smile:"
 
-            testing_message = f"Hey everyone, I need your help for *2 manual tests* on this PR: *{slack_title}*\n"
+            testing_message = f"Hey everyone, I need your help for *2 manual tests* on: *{slack_title}*\n"
             testing_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
             testing_message += "As always, I am happy to trade reviews :smile:"
 
@@ -1657,11 +1657,11 @@ class OutputFormatter:
                     slack_title = pr_title.replace('`', '')
 
                     # Build message with PR name and URL with line counts directly after
-                    code_review_message = f"Hey {author}, I need your help for *a code review* on this PR: *{slack_title}*\n"
+                    code_review_message = f"Hey {author}, I need your help for *a code review* on: *{slack_title}*\n"
                     code_review_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
                     code_review_message += "As always, I am happy to trade reviews :smile:"
 
-                    testing_message = f"Hey {author}, I need your help for *a manual test* on this PR: *{slack_title}*\n"
+                    testing_message = f"Hey {author}, I need your help for *a manual test* on: *{slack_title}*\n"
                     testing_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
                     testing_message += "As always, I am happy to trade reviews :smile:"
 
