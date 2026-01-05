@@ -20,7 +20,7 @@ RESET = '\033[0m'
 class OutputFormatter:
     """Formats and prints review analysis results."""
 
-    def __init__(self, username: str, sort_by: str = 'total_prs', show_extended_report: bool = False, show_overall_statistics: bool = True, max_review_count_threshold: int = None, filter_non_pr_authors: bool = False):
+    def __init__(self, username: str, sort_by: str = 'total_prs', show_extended_report: bool = False, show_overall_statistics: bool = True, max_review_count_threshold: int = None, filter_non_pr_authors: bool = False, config: dict = None):
         """Initialize the output formatter.
 
         Args:
@@ -30,6 +30,7 @@ class OutputFormatter:
             show_overall_statistics: Whether to show the overall statistics section
             max_review_count_threshold: Minimum review count to filter PRs (None = no filtering)
             filter_non_pr_authors: Whether to filter out users who have not opened any PRs
+            config: Configuration dictionary with analysis parameters (repositories, months, excluded_users, etc.)
         """
         self.username = username
         self.sort_by = sort_by
@@ -37,6 +38,7 @@ class OutputFormatter:
         self.show_overall_statistics = show_overall_statistics
         self.max_review_count_threshold = max_review_count_threshold
         self.filter_non_pr_authors = filter_non_pr_authors
+        self.config = config or {}
 
     def print_summary(
         self,
@@ -421,7 +423,8 @@ class OutputFormatter:
         reviewed_by_me: Dict[str, ReviewStats],
         reviewed_by_others: Dict[str, ReviewStats],
         open_prs_by_author: Dict[str, list],
-        pr_authors: Set[str] = None
+        pr_authors: Set[str] = None,
+        my_open_prs: list = None
     ) -> str:
         """Generate HTML report of review statistics.
 
@@ -430,6 +433,7 @@ class OutputFormatter:
             reviewed_by_others: Statistics for PRs others reviewed
             open_prs_by_author: Open PRs grouped by author
             pr_authors: Set of all users who have authored PRs in the repositories
+            my_open_prs: List of my open PRs that need review
 
         Returns:
             HTML string containing the full report
@@ -440,13 +444,20 @@ class OutputFormatter:
             return self._generate_empty_html()
 
         html_parts = []
-        html_parts.append(self._generate_html_header())
+        html_parts.append(self._generate_html_header(open_prs_by_author))
+
+        # Settings section
+        html_parts.append(self._generate_settings_html())
+
+        # My open PRs section
+        if my_open_prs:
+            html_parts.append(self._generate_my_open_prs_html(my_open_prs))
 
         # Review balance table
-        html_parts.append(self._generate_review_balance_html(all_users, reviewed_by_me, reviewed_by_others, pr_authors))
+        html_parts.append(self._generate_review_balance_html(all_users, reviewed_by_me, reviewed_by_others, pr_authors, open_prs_by_author, my_open_prs))
 
         # Open PRs
-        html_parts.append(self._generate_open_prs_html(open_prs_by_author, reviewed_by_me, reviewed_by_others))
+        html_parts.append(self._generate_open_prs_html(open_prs_by_author, reviewed_by_me, reviewed_by_others, my_open_prs))
 
         # Detailed history (if enabled)
         if self.show_extended_report:
@@ -460,9 +471,12 @@ class OutputFormatter:
 
         return '\n'.join(html_parts)
 
-    def _generate_html_header(self) -> str:
+    def _generate_html_header(self, open_prs_by_author: Dict[str, list] = None) -> str:
         """Generate HTML header with CSS styles."""
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        users_with_open_prs = set(open_prs_by_author.keys()) if open_prs_by_author else set()
+        users_with_open_prs_json = str(list(users_with_open_prs)).replace("'", '"')
+
         return f'''<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -801,6 +815,135 @@ class OutputFormatter:
             text-decoration: underline;
         }}
 
+        .settings-section {{
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            border: 1px solid #e0e0e0;
+        }}
+
+        .settings-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }}
+
+        .setting-item {{
+            display: flex;
+            flex-direction: column;
+        }}
+
+        .setting-label {{
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+        }}
+
+        .setting-value {{
+            color: #333;
+            padding: 8px 12px;
+            background: white;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }}
+
+        .my-prs-section {{
+            background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            border: 3px solid #4caf50;
+        }}
+
+        .copy-button {{
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+            margin-top: 10px;
+            transition: background-color 0.2s ease;
+        }}
+
+        .copy-button:hover {{
+            background: #5568d3;
+        }}
+
+        .copy-button:active {{
+            background: #4556bb;
+        }}
+
+        .copy-button.copied {{
+            background: #4caf50;
+        }}
+
+        .message-box {{
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            white-space: pre-wrap;
+            line-height: 1.6;
+        }}
+
+        tbody tr.disabled {{
+            opacity: 0.5;
+            cursor: not-allowed !important;
+        }}
+
+        tbody tr.disabled:hover {{
+            background-color: transparent !important;
+        }}
+
+        details {{
+            background: #fafafa;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+            border: 1px solid #e0e0e0;
+        }}
+
+        summary {{
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 1.2em;
+            color: #667eea;
+            padding: 10px;
+            margin: -15px -15px 15px -15px;
+            background: linear-gradient(135deg, #e8eaf6 0%, #d1d5f0 100%);
+            border-radius: 8px 8px 0 0;
+            user-select: none;
+        }}
+
+        summary:hover {{
+            background: linear-gradient(135deg, #d1d5f0 0%, #c5cae9 100%);
+        }}
+
+        details[open] summary {{
+            border-radius: 8px 8px 0 0;
+            margin-bottom: 20px;
+        }}
+
+        .user-pr-item {{
+            padding: 10px;
+            margin: 5px 0;
+            background: #f0f0f0;
+            border-radius: 4px;
+            border-left: 4px solid #667eea;
+        }}
+
+        .user-pr-item:hover {{
+            background: #e8e8e8;
+        }}
+
         @media (max-width: 768px) {{
             .container {{
                 padding: 20px;
@@ -828,12 +971,32 @@ class OutputFormatter:
         }}
     </style>
     <script>
+        const usersWithOpenPRs = {users_with_open_prs_json};
+        const defaultSortBy = '{self.sort_by}';
+
         document.addEventListener('DOMContentLoaded', function() {{
             // Table sorting functionality
             const table = document.querySelector('table');
             if (table) {{
                 const headers = table.querySelectorAll('th');
                 const tbody = table.querySelector('tbody');
+
+                // Set initial sort indicator
+                const sortColumnMap = {{
+                    'total_prs': 1,
+                    'their_prs': 2,
+                    'my_prs': 3,
+                    'they_reviewed': 4,
+                    'i_reviewed': 5,
+                    'balance': 6,
+                    'user': 0
+                }};
+
+                const defaultColumnIndex = sortColumnMap[defaultSortBy] || 1;
+                const defaultHeader = headers[defaultColumnIndex];
+                if (defaultHeader) {{
+                    defaultHeader.classList.add('sort-desc');
+                }}
 
                 headers.forEach((header, index) => {{
                     header.addEventListener('click', () => {{
@@ -878,10 +1041,21 @@ class OutputFormatter:
                     rows.forEach(row => tbody.appendChild(row));
                 }}
 
-                // Row click navigation
+                // Row click navigation with disabled state check
                 tbody.querySelectorAll('tr').forEach(row => {{
+                    const username = row.cells[0].textContent.trim();
+
+                    // Mark rows without open PRs as disabled
+                    if (!usersWithOpenPRs.includes(username)) {{
+                        row.classList.add('disabled');
+                    }}
+
                     row.addEventListener('click', () => {{
-                        const username = row.cells[0].textContent.trim();
+                        if (row.classList.contains('disabled')) {{
+                            alert(`No open PRs to review from ${{username}}`);
+                            return;
+                        }}
+
                         const targetSection = document.getElementById('user-' + username);
                         if (targetSection) {{
                             targetSection.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
@@ -920,6 +1094,47 @@ class OutputFormatter:
                     }}
                 }});
             }});
+
+            // Copy to clipboard functionality
+            document.querySelectorAll('.copy-button').forEach(button => {{
+                button.addEventListener('click', function() {{
+                    const messageBox = this.previousElementSibling;
+                    if (messageBox && messageBox.classList.contains('message-box')) {{
+                        const text = messageBox.textContent;
+                        navigator.clipboard.writeText(text).then(() => {{
+                            const originalText = this.textContent;
+                            this.textContent = 'Copied!';
+                            this.classList.add('copied');
+                            setTimeout(() => {{
+                                this.textContent = originalText;
+                                this.classList.remove('copied');
+                            }}, 2000);
+                        }}).catch(err => {{
+                            console.error('Failed to copy:', err);
+                            alert('Failed to copy to clipboard');
+                        }});
+                    }}
+                }});
+            }});
+
+            // Per-user PR copy functionality
+            document.querySelectorAll('.user-pr-item').forEach(item => {{
+                item.addEventListener('click', function() {{
+                    const message = this.dataset.message;
+                    if (message) {{
+                        navigator.clipboard.writeText(message).then(() => {{
+                            const originalBg = this.style.backgroundColor;
+                            this.style.backgroundColor = '#c8e6c9';
+                            setTimeout(() => {{
+                                this.style.backgroundColor = originalBg;
+                            }}, 500);
+                        }}).catch(err => {{
+                            console.error('Failed to copy:', err);
+                            alert('Failed to copy to clipboard');
+                        }});
+                    }}
+                }});
+            }});
         }});
     </script>
 </head>
@@ -935,9 +1150,113 @@ class OutputFormatter:
 </body>
 </html>'''
 
+    def _generate_settings_html(self) -> str:
+        """Generate HTML for settings section."""
+        html = '<details open>\n'
+        html += '<summary>Analysis Settings</summary>\n'
+        html += '<div class="settings-section">\n'
+        html += '<div class="settings-grid">\n'
+
+        # Repositories
+        if 'repositories' in self.config:
+            repos = self.config['repositories']
+            html += '<div class="setting-item">\n'
+            html += '<div class="setting-label">Repositories</div>\n'
+            html += f'<div class="setting-value">{", ".join(repos)}</div>\n'
+            html += '</div>\n'
+
+        # Time range
+        if 'months' in self.config:
+            html += '<div class="setting-item">\n'
+            html += '<div class="setting-label">Time Range</div>\n'
+            html += f'<div class="setting-value">Last {self.config["months"]} months</div>\n'
+            html += '</div>\n'
+
+        # Excluded users
+        if 'excluded_users' in self.config and self.config['excluded_users']:
+            html += '<div class="setting-item">\n'
+            html += '<div class="setting-label">Excluded Users</div>\n'
+            html += f'<div class="setting-value">{", ".join(sorted(self.config["excluded_users"]))}</div>\n'
+            html += '</div>\n'
+
+        # Required PR label
+        if 'required_pr_label' in self.config and self.config['required_pr_label']:
+            html += '<div class="setting-item">\n'
+            html += '<div class="setting-label">Required PR Label</div>\n'
+            html += f'<div class="setting-value">{self.config["required_pr_label"]}</div>\n'
+            html += '</div>\n'
+
+        # Sort by
+        html += '<div class="setting-item">\n'
+        html += '<div class="setting-label">Default Sort</div>\n'
+        html += f'<div class="setting-value">{self.sort_by}</div>\n'
+        html += '</div>\n'
+
+        # Exclude generated files
+        if 'exclude_generated_files' in self.config:
+            html += '<div class="setting-item">\n'
+            html += '<div class="setting-label">Exclude Generated Files</div>\n'
+            html += f'<div class="setting-value">{"Yes" if self.config["exclude_generated_files"] else "No"}</div>\n'
+            html += '</div>\n'
+
+        # Max review count threshold
+        if self.max_review_count_threshold is not None:
+            html += '<div class="setting-item">\n'
+            html += '<div class="setting-label">Max Review Count Threshold</div>\n'
+            html += f'<div class="setting-value">{self.max_review_count_threshold}</div>\n'
+            html += '</div>\n'
+
+        # Filter non-PR authors
+        if self.filter_non_pr_authors:
+            html += '<div class="setting-item">\n'
+            html += '<div class="setting-label">Filter Non-PR Authors</div>\n'
+            html += '<div class="setting-value">Yes</div>\n'
+            html += '</div>\n'
+
+        html += '</div>\n</div>\n</details>\n'
+        return html
+
+    def _generate_my_open_prs_html(self, my_open_prs: list) -> str:
+        """Generate HTML for my open PRs section with copyable messages per PR."""
+        html = '<div class="my-prs-section">\n'
+        html += '<h2>My Open PRs Needing Review</h2>\n'
+        html += f'<p>You have <strong>{len(my_open_prs)}</strong> open PR(s). Click "Copy Message" to copy a Slack-ready review request for each PR.</p>\n'
+
+        for pr in my_open_prs:
+            repo_name = pr['repo']
+            repo_short = repo_name.split('/')[-1]
+            pr_number = pr['number']
+            pr_title = pr['title']
+            pr_url = pr['url']
+            additions = pr['additions']
+            deletions = pr['deletions']
+            total_lines = additions + deletions
+
+            # Generate individual message for this PR in Slack format
+            # Slack uses *text* for bold and <url|text> for links
+            message = f"Hey everyone, I need your help for\n\n*a code review*\n\n"
+            message += f"on this PR\n\n"
+            message += f"<{pr_url}|{repo_name}#{pr_number}: {pr_title}>\n\n"
+            message += f"(+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
+            message += "As always, happy to trade reviews 🙂"
+
+            # Escape message for HTML data attribute
+            import html as html_module
+            escaped_message = html_module.escape(message)
+
+            html += '<div class="user-pr-item" data-message="' + escaped_message + '" style="margin: 20px 0; padding: 15px; background: white; border-radius: 8px; border: 2px solid #4caf50; cursor: pointer;" title="Click to copy Slack message">\n'
+            html += f'<div style="font-weight: 600; font-size: 1.1em; margin-bottom: 10px;">[{repo_short}] #{pr_number}: {pr_title}</div>\n'
+            html += f'<div style="font-size: 0.9em; color: #666; margin-bottom: 5px;"><a href="{pr_url}" target="_blank">{pr_url}</a></div>\n'
+            html += f'<div style="font-size: 0.9em; color: #666; margin-bottom: 10px;">(+{additions:,} / -{deletions:,} lines)</div>\n'
+            html += '</div>\n'
+
+        html += '</div>\n'
+
+        return html
+
     def _generate_empty_html(self) -> str:
         """Generate HTML for when there's no data."""
-        html = self._generate_html_header()
+        html = self._generate_html_header({})
         html += '<div class="no-data">No review activity found.</div>'
         html += self._generate_html_footer()
         return html
@@ -947,7 +1266,9 @@ class OutputFormatter:
         all_users: Set[str],
         reviewed_by_me: Dict[str, ReviewStats],
         reviewed_by_others: Dict[str, ReviewStats],
-        pr_authors: Set[str] = None
+        pr_authors: Set[str] = None,
+        open_prs_by_author: Dict[str, list] = None,
+        my_open_prs: list = None
     ) -> str:
         """Generate HTML for review balance table."""
         # Calculate review balance for each user
@@ -1044,7 +1365,8 @@ class OutputFormatter:
         self,
         open_prs_by_author: Dict[str, list],
         reviewed_by_me: Dict[str, ReviewStats],
-        reviewed_by_others: Dict[str, ReviewStats]
+        reviewed_by_others: Dict[str, ReviewStats],
+        my_open_prs: list = None
     ) -> str:
         """Generate HTML for open PRs section."""
         html = '<h2>Open PRs That Need Your Review</h2>\n'
@@ -1160,7 +1482,101 @@ class OutputFormatter:
                 html += '</a>\n'
                 html += '</li>\n'
 
-            html += '</ul>\n</div>\n'
+            html += '</ul>\n'
+
+            # Add collapsible details section showing review history with this user
+            my_reviews = reviewed_by_me.get(author)
+            their_reviews = reviewed_by_others.get(author)
+
+            if my_reviews or their_reviews:
+                html += '<details style="margin-top: 20px;">\n'
+                html += f'<summary style="cursor: pointer; font-weight: 600; color: #667eea;">Review History with {author}</summary>\n'
+                html += '<div style="padding: 15px; background: #fafafa; border-radius: 4px; margin-top: 10px;">\n'
+
+                # Summary table
+                html += '<table class="metric-table" style="width: 100%; margin: 10px 0;">\n'
+                html += '<thead><tr><th>Metric</th><th>I Reviewed</th><th>They Reviewed</th></tr></thead>\n'
+                html += '<tbody>\n'
+
+                my_prs_reviewed = my_reviews.prs_reviewed if my_reviews else 0
+                their_prs_reviewed = their_reviews.prs_reviewed if their_reviews else 0
+                my_lines = my_reviews.lines_reviewed if my_reviews else 0
+                their_lines = their_reviews.lines_reviewed if their_reviews else 0
+                my_additions = my_reviews.additions_reviewed if my_reviews else 0
+                their_additions = their_reviews.additions_reviewed if their_reviews else 0
+                my_deletions = my_reviews.deletions_reviewed if my_reviews else 0
+                their_deletions = their_reviews.deletions_reviewed if their_reviews else 0
+                my_events = my_reviews.review_events if my_reviews else 0
+                their_events = their_reviews.review_events if their_reviews else 0
+                my_comments = my_reviews.comments if my_reviews else 0
+                their_comments = their_reviews.comments if their_reviews else 0
+
+                html += f'<tr><td>PRs reviewed</td><td>{my_prs_reviewed}</td><td>{their_prs_reviewed}</td></tr>\n'
+                html += f'<tr><td>Lines reviewed (total)</td><td>{my_lines:,}</td><td>{their_lines:,}</td></tr>\n'
+                html += f'<tr><td>&nbsp;&nbsp;+lines (additions)</td><td>{my_additions:,}</td><td>{their_additions:,}</td></tr>\n'
+                html += f'<tr><td>&nbsp;&nbsp;-lines (deletions)</td><td>{my_deletions:,}</td><td>{their_deletions:,}</td></tr>\n'
+                html += f'<tr><td>Review events</td><td>{my_events}</td><td>{their_events}</td></tr>\n'
+                html += f'<tr><td>Comments written</td><td>{my_comments}</td><td>{their_comments}</td></tr>\n'
+                html += '</tbody>\n</table>\n'
+
+                # List PRs I reviewed
+                if my_reviews and my_reviews.prs:
+                    html += f'<p style="margin-top: 15px;"><strong>📝 PRs I reviewed from {author} ({len(my_reviews.prs)}):</strong></p>\n'
+                    html += '<ul style="margin-left: 20px;">\n'
+                    for pr in my_reviews.prs:
+                        html += f'<li>#{pr["number"]}: {pr["title"]}<br>\n'
+                        html += f'<a href="{pr["url"]}" class="pr-link" target="_blank">{pr["url"]}</a> '
+                        html += f'(+{pr["additions"]:,} / -{pr["deletions"]:,} lines)</li>\n'
+                    html += '</ul>\n'
+
+                # List PRs they reviewed
+                if their_reviews and their_reviews.prs:
+                    html += f'<p style="margin-top: 15px;"><strong>📝 PRs {author} reviewed for me ({len(their_reviews.prs)}):</strong></p>\n'
+                    html += '<ul style="margin-left: 20px;">\n'
+                    for pr in their_reviews.prs:
+                        html += f'<li>#{pr["number"]}: {pr["title"]}<br>\n'
+                        html += f'<a href="{pr["url"]}" class="pr-link" target="_blank">{pr["url"]}</a> '
+                        html += f'(+{pr["additions"]:,} / -{pr["deletions"]:,} lines)</li>\n'
+                    html += '</ul>\n'
+
+                html += '</div>\n</details>\n'
+
+            # Add section for my PRs that this user can review
+            if my_open_prs:
+                html += '<div style="margin-top: 20px; padding-top: 15px; border-top: 2px solid #ddd;">\n'
+                html += f'<h3 style="color: #667eea; margin-bottom: 10px;">My PRs for {author} to Review</h3>\n'
+                html += '<p style="font-size: 0.9em; color: #666; margin-bottom: 10px;">Click on a PR to copy a personalized Slack-ready review request</p>\n'
+
+                for pr in my_open_prs:
+                    repo_name = pr['repo']
+                    repo_short = repo_name.split('/')[-1]
+                    pr_title = pr['title']
+                    pr_url = pr['url']
+                    additions = pr['additions']
+                    deletions = pr['deletions']
+                    total_lines = additions + deletions
+
+                    # Generate personalized message for this user in Slack format
+                    # Slack uses *text* for bold and <url|text> for links
+                    message = f"Hey {author}, I need your help for\n\n*a code review*\n\n"
+                    message += f"on this PR\n\n"
+                    message += f"<{pr_url}|{repo_name}#{pr['number']}: {pr_title}>\n\n"
+                    message += f"(+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
+                    message += "As always, happy to trade reviews 🙂"
+
+                    # Escape message for HTML data attribute
+                    import html as html_module
+                    escaped_message = html_module.escape(message)
+
+                    html += f'<div class="user-pr-item" data-message="{escaped_message}" style="cursor: pointer;" title="Click to copy Slack-ready review request">\n'
+                    html += f'<div style="font-weight: 600;">[{repo_short}] #{pr["number"]}: {pr_title}</div>\n'
+                    html += f'<div style="font-size: 0.9em; color: #666;">{pr_url}</div>\n'
+                    html += f'<div style="font-size: 0.9em; color: #666;">(+{additions:,} / -{deletions:,} lines)</div>\n'
+                    html += '</div>\n'
+
+                html += '</div>\n'
+
+            html += '</div>\n'
 
         return html
 
@@ -1172,7 +1588,8 @@ class OutputFormatter:
         pr_authors: Set[str] = None
     ) -> str:
         """Generate HTML for detailed review history."""
-        html = '<h2>Detailed Review History</h2>\n'
+        html = '<details>\n'
+        html += '<summary>Detailed Review History</summary>\n'
 
         # Filter users based on filter_non_pr_authors flag
         filtered_users = all_users
@@ -1245,6 +1662,7 @@ class OutputFormatter:
 
             html += '</div>\n'
 
+        html += '</details>\n'
         return html
 
     def _generate_overall_stats_html(
@@ -1295,6 +1713,7 @@ class OutputFormatter:
         reviewed_by_others: Dict[str, ReviewStats],
         open_prs_by_author: Dict[str, list],
         pr_authors: Set[str] = None,
+        my_open_prs: list = None,
         output_dir: str = None
     ) -> str:
         """Generate and save HTML report to file.
@@ -1304,12 +1723,13 @@ class OutputFormatter:
             reviewed_by_others: Statistics for PRs others reviewed
             open_prs_by_author: Open PRs grouped by author
             pr_authors: Set of all users who have authored PRs in the repositories
+            my_open_prs: List of my open PRs that need review
             output_dir: Directory to save the HTML file (defaults to current directory)
 
         Returns:
             Absolute path to the saved HTML file
         """
-        html_content = self.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author, pr_authors)
+        html_content = self.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author, pr_authors, my_open_prs)
 
         # Determine output directory
         if output_dir is None:

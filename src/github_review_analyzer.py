@@ -917,6 +917,78 @@ class GitHubReviewAnalyzer:
             'changes_requested': changes_requested
         }
 
+    def get_my_open_prs(self) -> List[Dict]:
+        """Fetch my open PRs from analyzed repositories that are ready for review.
+
+        Returns:
+            List of my open PRs with details
+        """
+        my_prs = []
+
+        print("\nFetching my open PRs...")
+        for repo in self.repositories:
+            url = f"https://api.github.com/repos/{repo}/pulls"
+
+            try:
+                open_prs = self._get_paginated(url, {
+                    'state': 'open',
+                    'sort': 'updated',
+                    'direction': 'desc'
+                }, use_cache=False)
+
+                for pr in open_prs:
+                    pr_author = pr['user']['login']
+
+                    # Only include my PRs
+                    if pr_author != self.username:
+                        continue
+
+                    # Skip draft PRs
+                    if pr.get('draft', False):
+                        continue
+
+                    # Check for required label (if specified)
+                    if self.required_pr_label:
+                        pr_labels = [label['name'] for label in pr.get('labels', [])]
+                        if self.required_pr_label not in pr_labels:
+                            continue
+
+                    # Get PR details
+                    pr_number = pr['number']
+                    pr_details_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
+
+                    try:
+                        pr_details_response = self.api_client.get(pr_details_url)
+                        if pr_details_response.status_code == 200:
+                            pr_details = pr_details_response.json()
+                            additions = pr_details.get('additions', 0)
+                            deletions = pr_details.get('deletions', 0)
+
+                            # Apply file filtering if enabled
+                            if self.exclude_generated_files:
+                                filtered_counts = self._get_filtered_line_counts(repo, pr_number, should_cache=True)
+                                if filtered_counts:
+                                    additions = filtered_counts['additions']
+                                    deletions = filtered_counts['deletions']
+
+                            my_prs.append({
+                                'number': pr_number,
+                                'title': pr['title'],
+                                'url': pr['html_url'],
+                                'repo': repo,
+                                'additions': additions,
+                                'deletions': deletions,
+                                'created_at': pr['created_at'],
+                                'updated_at': pr['updated_at']
+                            })
+                    except Exception as e:
+                        logging.warning(f"Error fetching PR details for #{pr_number}: {e}")
+
+            except Exception as e:
+                logging.error(f"Error fetching my open PRs from {repo}: {e}")
+
+        return my_prs
+
     def save_cache(self):
         """Save the cache to disk."""
         self.cache_manager.save_cache()

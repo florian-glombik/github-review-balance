@@ -181,7 +181,20 @@ def main():
     logging.info("Analysis complete, generating summary...")
     open_prs_by_author = analyzer.get_open_prs_needing_review()
 
-    output_formatter = OutputFormatter(username, sort_by, show_extended_report, show_overall_statistics, max_review_count_threshold, filter_non_pr_authors)
+    # Get my open PRs
+    my_open_prs = analyzer.get_my_open_prs()
+
+    # Create config dictionary for the output formatter
+    config = {
+        'repositories': repos,
+        'months': months,
+        'excluded_users': excluded_users,
+        'required_pr_label': required_pr_label,
+        'exclude_generated_files': exclude_generated_files,
+        'excluded_file_patterns': excluded_file_patterns
+    }
+
+    output_formatter = OutputFormatter(username, sort_by, show_extended_report, show_overall_statistics, max_review_count_threshold, filter_non_pr_authors, config)
     output_formatter.print_summary(
         analyzer.reviewed_by_me,
         analyzer.reviewed_by_others,
@@ -195,7 +208,8 @@ def main():
         analyzer.reviewed_by_me,
         analyzer.reviewed_by_others,
         open_prs_by_author,
-        analyzer.pr_authors
+        analyzer.pr_authors,
+        my_open_prs
     )
 
     print("\n" + "="*80)
