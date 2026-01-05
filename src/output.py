@@ -546,6 +546,30 @@ class OutputFormatter:
             text-transform: uppercase;
             font-size: 0.85em;
             letter-spacing: 0.5px;
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+            transition: background-color 0.2s ease;
+        }}
+
+        th:hover {{
+            background-color: rgba(0, 0, 0, 0.1);
+        }}
+
+        th::after {{
+            content: ' ⇅';
+            opacity: 0.3;
+            font-size: 0.8em;
+        }}
+
+        th.sort-asc::after {{
+            content: ' ↑';
+            opacity: 1;
+        }}
+
+        th.sort-desc::after {{
+            content: ' ↓';
+            opacity: 1;
         }}
 
         td {{
@@ -553,8 +577,26 @@ class OutputFormatter:
             border-bottom: 1px solid #f0f0f0;
         }}
 
-        tr:hover {{
+        tbody tr {{
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }}
+
+        tbody tr:hover {{
             background-color: #f8f9fa;
+        }}
+
+        tbody tr.highlight {{
+            animation: highlight-fade 2s ease-out;
+        }}
+
+        @keyframes highlight-fade {{
+            0% {{
+                background-color: #ffd700;
+            }}
+            100% {{
+                background-color: transparent;
+            }}
         }}
 
         .balance-positive {{
@@ -647,6 +689,7 @@ class OutputFormatter:
             padding: 15px;
             background: #f8f9fa;
             border-radius: 8px;
+            scroll-margin-top: 20px;
         }}
 
         .author-name {{
@@ -743,6 +786,24 @@ class OutputFormatter:
             width: 40%;
         }}
 
+        .back-to-table {{
+            display: inline-block;
+            margin-bottom: 15px;
+            padding: 8px 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 0.9em;
+            font-weight: 500;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }}
+
+        .back-to-table:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }}
+
         @media (max-width: 768px) {{
             .container {{
                 padding: 20px;
@@ -769,6 +830,101 @@ class OutputFormatter:
             }}
         }}
     </style>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {{
+            // Table sorting functionality
+            const table = document.querySelector('table');
+            if (table) {{
+                const headers = table.querySelectorAll('th');
+                const tbody = table.querySelector('tbody');
+
+                headers.forEach((header, index) => {{
+                    header.addEventListener('click', () => {{
+                        sortTable(index, header);
+                    }});
+                }});
+
+                function sortTable(columnIndex, header) {{
+                    const rows = Array.from(tbody.querySelectorAll('tr'));
+                    const currentSort = header.classList.contains('sort-asc') ? 'asc' :
+                                       header.classList.contains('sort-desc') ? 'desc' : 'none';
+
+                    // Remove sort classes from all headers
+                    headers.forEach(h => h.classList.remove('sort-asc', 'sort-desc'));
+
+                    // Determine new sort direction
+                    const newSort = currentSort === 'none' ? 'desc' :
+                                   currentSort === 'desc' ? 'asc' : 'desc';
+
+                    header.classList.add(newSort === 'asc' ? 'sort-asc' : 'sort-desc');
+
+                    // Sort rows
+                    rows.sort((a, b) => {{
+                        const aValue = a.cells[columnIndex].textContent.trim();
+                        const bValue = b.cells[columnIndex].textContent.trim();
+
+                        // Try to parse as number (handle formats like "+1,234" or "-1,234")
+                        const aNum = parseFloat(aValue.replace(/[+,]/g, ''));
+                        const bNum = parseFloat(bValue.replace(/[+,]/g, ''));
+
+                        if (!isNaN(aNum) && !isNaN(bNum)) {{
+                            return newSort === 'asc' ? aNum - bNum : bNum - aNum;
+                        }}
+
+                        // String comparison
+                        return newSort === 'asc' ?
+                            aValue.localeCompare(bValue) :
+                            bValue.localeCompare(aValue);
+                    }});
+
+                    // Re-append sorted rows
+                    rows.forEach(row => tbody.appendChild(row));
+                }}
+
+                // Row click navigation
+                tbody.querySelectorAll('tr').forEach(row => {{
+                    row.addEventListener('click', () => {{
+                        const username = row.cells[0].textContent.trim();
+                        const targetSection = document.getElementById('user-' + username);
+                        if (targetSection) {{
+                            targetSection.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+                        }}
+                    }});
+                }});
+            }}
+
+            // Handle back-to-table links with highlighting
+            document.querySelectorAll('.back-to-table').forEach(link => {{
+                link.addEventListener('click', (e) => {{
+                    e.preventDefault();
+                    const username = link.dataset.username;
+                    const table = document.querySelector('table');
+
+                    if (table) {{
+                        table.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+
+                        // Highlight the user's row
+                        setTimeout(() => {{
+                            const rows = table.querySelectorAll('tbody tr');
+                            rows.forEach(row => {{
+                                if (row.cells[0].textContent.trim() === username) {{
+                                    row.classList.remove('highlight');
+                                    // Force reflow to restart animation
+                                    void row.offsetWidth;
+                                    row.classList.add('highlight');
+
+                                    // Remove highlight class after animation
+                                    setTimeout(() => {{
+                                        row.classList.remove('highlight');
+                                    }}, 2000);
+                                }}
+                            }});
+                        }}, 500);
+                    }}
+                }});
+            }});
+        }});
+    </script>
 </head>
 <body>
     <div class="container">
@@ -826,7 +982,7 @@ class OutputFormatter:
         # Sort by specified column
         review_balance = self._sort_review_balance(review_balance)
 
-        html = '<h2>Review Balance & Next Actions</h2>\n'
+        html = '<h2 id="review-table">Review Balance & Next Actions</h2>\n'
         html += '<table>\n'
         html += '<thead><tr>\n'
         html += '<th>User</th><th>Total PRs</th><th>Their PRs</th><th>My PRs</th>'
@@ -972,7 +1128,8 @@ class OutputFormatter:
                 priority_class = ""
                 priority_text = ""
 
-            html += f'<div class="author-section">\n'
+            html += f'<div class="author-section" id="user-{author}">\n'
+            html += f'<a href="#" class="back-to-table" data-username="{author}">← Back to table</a>\n'
             html += f'<div class="author-name">From <a href="https://github.com/{author}" class="author-link" target="_blank">{author}</a>'
             if priority_text:
                 html += f' <span style="color: #28a745;">({priority_text})</span>'
