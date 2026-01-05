@@ -21,7 +21,7 @@ The script generates both **console output** and an **interactive HTML report** 
 
 The tool automatically generates an interactive HTML report saved to the `reports/` directory with a filename like `github_review_analysis_<username>_<timestamp>.html`.
 
-**[View Example Report](reports/github_review_analysis_florian-glombik_20260105_035933.html)**
+**[View Example Report](assets/github_review_analysis_florian-glombik_20260105_180202.html)**
 
 This report includes:
 
