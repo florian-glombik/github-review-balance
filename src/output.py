@@ -1236,6 +1236,8 @@ class OutputFormatter:
             additions = pr['additions']
             deletions = pr['deletions']
             total_lines = additions + deletions
+            review_count = pr.get('review_count', 0)
+            requested_reviewers = pr.get('requested_reviewers', [])
 
             # Generate messages for this PR in Slack format
             # Slack uses *text* for bold and <url|text> for links
@@ -1255,7 +1257,21 @@ class OutputFormatter:
             html += '<div style="margin: 20px 0; padding: 15px; background: white; border-radius: 8px; border: 2px solid #4caf50;">\n'
             html += f'<div style="font-weight: 600; font-size: 1.1em; margin-bottom: 10px;">[{repo_short}] #{pr_number}: {pr_title}</div>\n'
             html += f'<div style="font-size: 0.9em; color: #666; margin-bottom: 5px;"><a href="{pr_url}" target="_blank">{pr_url}</a></div>\n'
-            html += f'<div style="font-size: 0.9em; color: #666; margin-bottom: 10px;">(+{additions:,} / -{deletions:,} lines)</div>\n'
+            html += f'<div style="font-size: 0.9em; color: #666; margin-bottom: 5px;">(+{additions:,} / -{deletions:,} lines)</div>\n'
+
+            # Display review count and requested reviewers
+            info_parts = []
+            if review_count > 0:
+                info_parts.append(f'<span class="badge badge-reviews">{review_count} review(s)</span>')
+            if requested_reviewers:
+                reviewers_str = ', '.join(requested_reviewers)
+                info_parts.append(f'<span style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: 600; background: #17a2b8; color: white;">Requested: {reviewers_str}</span>')
+
+            if info_parts:
+                html += f'<div style="font-size: 0.9em; margin-bottom: 10px;">{" ".join(info_parts)}</div>\n'
+            else:
+                html += '<div style="font-size: 0.9em; color: #999; margin-bottom: 10px; font-style: italic;">No reviews yet</div>\n'
+
             html += '<div style="display: flex; gap: 10px;">\n'
             html += f'<button class="pr-copy-button" data-message="{escaped_code_message}" style="flex: 1; background: #667eea; color: white; border: none; padding: 10px 16px; border-radius: 4px; cursor: pointer; font-size: 0.9em; transition: background-color 0.2s ease;">Copy Code Review Message</button>\n'
             html += f'<button class="pr-copy-button" data-message="{escaped_test_message}" style="flex: 1; background: #764ba2; color: white; border: none; padding: 10px 16px; border-radius: 4px; cursor: pointer; font-size: 0.9em; transition: background-color 0.2s ease;">Copy Testing Message</button>\n'
@@ -1557,8 +1573,9 @@ class OutputFormatter:
             # Add section for my PRs that this user can review
             if my_open_prs:
                 html += '<div style="margin-top: 20px; padding-top: 15px; border-top: 2px solid #ddd;">\n'
-                html += f'<h3 style="color: #667eea; margin-bottom: 10px;">My PRs for {author} to Review</h3>\n'
-                html += '<p style="font-size: 0.9em; color: #666; margin-bottom: 10px;">Click either button to copy a personalized Slack-ready message requesting code review or testing</p>\n'
+                html += '<details>\n'
+                html += f'<summary style="cursor: pointer; font-weight: 600; color: #667eea; font-size: 1.1em; margin-bottom: 10px;">My PRs for {author} to Review ({len(my_open_prs)})</summary>\n'
+                html += '<p style="font-size: 0.9em; color: #666; margin-bottom: 10px; margin-top: 10px;">Click either button to copy a personalized Slack-ready message requesting code review or testing</p>\n'
 
                 for pr in my_open_prs:
                     repo_name = pr['repo']
@@ -1568,6 +1585,8 @@ class OutputFormatter:
                     additions = pr['additions']
                     deletions = pr['deletions']
                     total_lines = additions + deletions
+                    review_count = pr.get('review_count', 0)
+                    requested_reviewers = pr.get('requested_reviewers', [])
 
                     # Generate personalized messages for this user in Slack format
                     # Slack uses *text* for bold and <url|text> for links
@@ -1587,13 +1606,28 @@ class OutputFormatter:
                     html += f'<div style="margin: 10px 0; padding: 15px; background: #f0f0f0; border-radius: 4px; border-left: 4px solid #667eea;">\n'
                     html += f'<div style="font-weight: 600; margin-bottom: 10px;">[{repo_short}] #{pr["number"]}: {pr_title}</div>\n'
                     html += f'<div style="font-size: 0.9em; color: #666; margin-bottom: 5px;">{pr_url}</div>\n'
-                    html += f'<div style="font-size: 0.9em; color: #666; margin-bottom: 10px;">(+{additions:,} / -{deletions:,} lines)</div>\n'
+                    html += f'<div style="font-size: 0.9em; color: #666; margin-bottom: 5px;">(+{additions:,} / -{deletions:,} lines)</div>\n'
+
+                    # Display review count and requested reviewers
+                    info_parts = []
+                    if review_count > 0:
+                        info_parts.append(f'<span class="badge badge-reviews">{review_count} review(s)</span>')
+                    if requested_reviewers:
+                        reviewers_str = ', '.join(requested_reviewers)
+                        info_parts.append(f'<span style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: 600; background: #17a2b8; color: white;">Requested: {reviewers_str}</span>')
+
+                    if info_parts:
+                        html += f'<div style="font-size: 0.9em; margin-bottom: 10px;">{" ".join(info_parts)}</div>\n'
+                    else:
+                        html += '<div style="font-size: 0.9em; color: #999; margin-bottom: 10px; font-style: italic;">No reviews yet</div>\n'
+
                     html += '<div style="display: flex; gap: 10px;">\n'
                     html += f'<button class="pr-copy-button" data-message="{escaped_code_message}" style="flex: 1; background: #667eea; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85em; transition: background-color 0.2s ease;">Copy Code Review Message</button>\n'
                     html += f'<button class="pr-copy-button" data-message="{escaped_test_message}" style="flex: 1; background: #764ba2; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85em; transition: background-color 0.2s ease;">Copy Testing Message</button>\n'
                     html += '</div>\n'
                     html += '</div>\n'
 
+                html += '</details>\n'
                 html += '</div>\n'
 
             html += '</div>\n'

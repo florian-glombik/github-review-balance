@@ -956,13 +956,30 @@ class GitHubReviewAnalyzer:
                     # Get PR details
                     pr_number = pr['number']
                     pr_details_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
+                    reviews_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews"
 
                     try:
-                        pr_details_response = self.api_client.get(pr_details_url)
+                        # Fetch PR details and reviews in parallel
+                        with ThreadPoolExecutor(max_workers=2) as executor:
+                            future_details = executor.submit(self.api_client.get, pr_details_url)
+                            future_reviews = executor.submit(self._get_paginated, reviews_url, use_cache=False)
+
+                            pr_details_response = future_details.result()
+                            reviews = future_reviews.result()
+
+                        additions = 0
+                        deletions = 0
+                        requested_reviewers = []
+                        review_count = 0
+
                         if pr_details_response.status_code == 200:
                             pr_details = pr_details_response.json()
                             additions = pr_details.get('additions', 0)
                             deletions = pr_details.get('deletions', 0)
+
+                            # Get requested reviewers
+                            requested_reviewers_list = pr_details.get('requested_reviewers', [])
+                            requested_reviewers = [r['login'] for r in requested_reviewers_list]
 
                             # Apply file filtering if enabled
                             if self.exclude_generated_files:
@@ -971,16 +988,26 @@ class GitHubReviewAnalyzer:
                                     additions = filtered_counts['additions']
                                     deletions = filtered_counts['deletions']
 
-                            my_prs.append({
-                                'number': pr_number,
-                                'title': pr['title'],
-                                'url': pr['html_url'],
-                                'repo': repo,
-                                'additions': additions,
-                                'deletions': deletions,
-                                'created_at': pr['created_at'],
-                                'updated_at': pr['updated_at']
-                            })
+                        # Count unique reviewers (excluding me and excluded users)
+                        unique_reviewers = set()
+                        for review in reviews:
+                            reviewer = review['user']['login']
+                            if reviewer != self.username and reviewer not in self.excluded_users:
+                                unique_reviewers.add(reviewer)
+                        review_count = len(unique_reviewers)
+
+                        my_prs.append({
+                            'number': pr_number,
+                            'title': pr['title'],
+                            'url': pr['html_url'],
+                            'repo': repo,
+                            'additions': additions,
+                            'deletions': deletions,
+                            'created_at': pr['created_at'],
+                            'updated_at': pr['updated_at'],
+                            'review_count': review_count,
+                            'requested_reviewers': requested_reviewers
+                        })
                     except Exception as e:
                         logging.warning(f"Error fetching PR details for #{pr_number}: {e}")
 
