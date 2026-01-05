@@ -1117,17 +1117,21 @@ class OutputFormatter:
                 }});
             }});
 
-            // Per-user PR copy functionality
-            document.querySelectorAll('.user-pr-item').forEach(item => {{
-                item.addEventListener('click', function() {{
+            // PR copy button functionality
+            document.querySelectorAll('.pr-copy-button').forEach(button => {{
+                button.addEventListener('click', function(e) {{
+                    e.stopPropagation();
                     const message = this.dataset.message;
                     if (message) {{
                         navigator.clipboard.writeText(message).then(() => {{
+                            const originalText = this.textContent;
                             const originalBg = this.style.backgroundColor;
-                            this.style.backgroundColor = '#c8e6c9';
+                            this.textContent = 'Copied!';
+                            this.style.backgroundColor = '#4caf50';
                             setTimeout(() => {{
+                                this.textContent = originalText;
                                 this.style.backgroundColor = originalBg;
-                            }}, 500);
+                            }}, 2000);
                         }}).catch(err => {{
                             console.error('Failed to copy:', err);
                             alert('Failed to copy to clipboard');
@@ -1220,7 +1224,7 @@ class OutputFormatter:
         """Generate HTML for my open PRs section with copyable messages per PR."""
         html = '<div class="my-prs-section">\n'
         html += '<h2>My Open PRs Needing Review</h2>\n'
-        html += f'<p>You have <strong>{len(my_open_prs)}</strong> open PR(s). Click "Copy Message" to copy a Slack-ready review request for each PR.</p>\n'
+        html += f'<p>You have <strong>{len(my_open_prs)}</strong> open PR(s). Click either button to copy a Slack-ready message requesting code review or testing.</p>\n'
 
         for pr in my_open_prs:
             repo_name = pr['repo']
@@ -1232,22 +1236,29 @@ class OutputFormatter:
             deletions = pr['deletions']
             total_lines = additions + deletions
 
-            # Generate individual message for this PR in Slack format
+            # Generate messages for this PR in Slack format
             # Slack uses *text* for bold and <url|text> for links
-            message = f"Hey everyone, I need your help for\n\n*a code review*\n\n"
-            message += f"on this PR\n\n"
-            message += f"<{pr_url}|{repo_name}#{pr_number}: {pr_title}>\n\n"
-            message += f"(+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
-            message += "As always, happy to trade reviews 🙂"
+            # Remove backticks from title as they break Slack link formatting
+            slack_title = pr_title.replace('`', '')
 
-            # Escape message for HTML data attribute
-            import html as html_module
-            escaped_message = html_module.escape(message)
+            code_review_message = f"Hey everyone, I need your help for *a code review* on this PR <{pr_url}|{slack_title}> (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
+            code_review_message += "As always, I am happy to trade reviews :smile:"
 
-            html += '<div class="user-pr-item" data-message="' + escaped_message + '" style="margin: 20px 0; padding: 15px; background: white; border-radius: 8px; border: 2px solid #4caf50; cursor: pointer;" title="Click to copy Slack message">\n'
+            testing_message = f"Hey everyone, I need your help for *testing* on this PR <{pr_url}|{slack_title}> (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
+            testing_message += "As always, I am happy to trade reviews :smile:"
+
+            # Escape only quotes and backslashes for HTML data attribute (preserve Slack formatting)
+            escaped_code_message = code_review_message.replace('\\', '\\\\').replace('"', '&quot;')
+            escaped_test_message = testing_message.replace('\\', '\\\\').replace('"', '&quot;')
+
+            html += '<div style="margin: 20px 0; padding: 15px; background: white; border-radius: 8px; border: 2px solid #4caf50;">\n'
             html += f'<div style="font-weight: 600; font-size: 1.1em; margin-bottom: 10px;">[{repo_short}] #{pr_number}: {pr_title}</div>\n'
             html += f'<div style="font-size: 0.9em; color: #666; margin-bottom: 5px;"><a href="{pr_url}" target="_blank">{pr_url}</a></div>\n'
             html += f'<div style="font-size: 0.9em; color: #666; margin-bottom: 10px;">(+{additions:,} / -{deletions:,} lines)</div>\n'
+            html += '<div style="display: flex; gap: 10px;">\n'
+            html += f'<button class="pr-copy-button" data-message="{escaped_code_message}" style="flex: 1; background: #667eea; color: white; border: none; padding: 10px 16px; border-radius: 4px; cursor: pointer; font-size: 0.9em; transition: background-color 0.2s ease;">Copy Code Review Message</button>\n'
+            html += f'<button class="pr-copy-button" data-message="{escaped_test_message}" style="flex: 1; background: #764ba2; color: white; border: none; padding: 10px 16px; border-radius: 4px; cursor: pointer; font-size: 0.9em; transition: background-color 0.2s ease;">Copy Testing Message</button>\n'
+            html += '</div>\n'
             html += '</div>\n'
 
         html += '</div>\n'
@@ -1545,7 +1556,7 @@ class OutputFormatter:
             if my_open_prs:
                 html += '<div style="margin-top: 20px; padding-top: 15px; border-top: 2px solid #ddd;">\n'
                 html += f'<h3 style="color: #667eea; margin-bottom: 10px;">My PRs for {author} to Review</h3>\n'
-                html += '<p style="font-size: 0.9em; color: #666; margin-bottom: 10px;">Click on a PR to copy a personalized Slack-ready review request</p>\n'
+                html += '<p style="font-size: 0.9em; color: #666; margin-bottom: 10px;">Click either button to copy a personalized Slack-ready message requesting code review or testing</p>\n'
 
                 for pr in my_open_prs:
                     repo_name = pr['repo']
@@ -1556,22 +1567,29 @@ class OutputFormatter:
                     deletions = pr['deletions']
                     total_lines = additions + deletions
 
-                    # Generate personalized message for this user in Slack format
+                    # Generate personalized messages for this user in Slack format
                     # Slack uses *text* for bold and <url|text> for links
-                    message = f"Hey {author}, I need your help for\n\n*a code review*\n\n"
-                    message += f"on this PR\n\n"
-                    message += f"<{pr_url}|{repo_name}#{pr['number']}: {pr_title}>\n\n"
-                    message += f"(+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
-                    message += "As always, happy to trade reviews 🙂"
+                    # Remove backticks from title as they break Slack link formatting
+                    slack_title = pr_title.replace('`', '')
 
-                    # Escape message for HTML data attribute
-                    import html as html_module
-                    escaped_message = html_module.escape(message)
+                    code_review_message = f"Hey {author}, I need your help for *a code review* on this PR <{pr_url}|{slack_title}> (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
+                    code_review_message += "As always, I am happy to trade reviews :smile:"
 
-                    html += f'<div class="user-pr-item" data-message="{escaped_message}" style="cursor: pointer;" title="Click to copy Slack-ready review request">\n'
-                    html += f'<div style="font-weight: 600;">[{repo_short}] #{pr["number"]}: {pr_title}</div>\n'
-                    html += f'<div style="font-size: 0.9em; color: #666;">{pr_url}</div>\n'
-                    html += f'<div style="font-size: 0.9em; color: #666;">(+{additions:,} / -{deletions:,} lines)</div>\n'
+                    testing_message = f"Hey {author}, I need your help for *testing* on this PR <{pr_url}|{slack_title}> (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
+                    testing_message += "As always, I am happy to trade reviews :smile:"
+
+                    # Escape only quotes and backslashes for HTML data attribute (preserve Slack formatting)
+                    escaped_code_message = code_review_message.replace('\\', '\\\\').replace('"', '&quot;')
+                    escaped_test_message = testing_message.replace('\\', '\\\\').replace('"', '&quot;')
+
+                    html += f'<div style="margin: 10px 0; padding: 15px; background: #f0f0f0; border-radius: 4px; border-left: 4px solid #667eea;">\n'
+                    html += f'<div style="font-weight: 600; margin-bottom: 10px;">[{repo_short}] #{pr["number"]}: {pr_title}</div>\n'
+                    html += f'<div style="font-size: 0.9em; color: #666; margin-bottom: 5px;">{pr_url}</div>\n'
+                    html += f'<div style="font-size: 0.9em; color: #666; margin-bottom: 10px;">(+{additions:,} / -{deletions:,} lines)</div>\n'
+                    html += '<div style="display: flex; gap: 10px;">\n'
+                    html += f'<button class="pr-copy-button" data-message="{escaped_code_message}" style="flex: 1; background: #667eea; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85em; transition: background-color 0.2s ease;">Copy Code Review Message</button>\n'
+                    html += f'<button class="pr-copy-button" data-message="{escaped_test_message}" style="flex: 1; background: #764ba2; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85em; transition: background-color 0.2s ease;">Copy Testing Message</button>\n'
+                    html += '</div>\n'
                     html += '</div>\n'
 
                 html += '</div>\n'
