@@ -1275,5 +1275,281 @@ class TestChangesRequestedDetection:
         assert result['changes_requested'] is False
 
 
+class TestLabelDetection:
+    """Test cases for PR label detection."""
+
+    @pytest.fixture
+    def mock_analyzer(self):
+        """Create analyzer with mocked API client."""
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.json') as f:
+            cache_file = f.name
+
+        analyzer = GitHubReviewAnalyzer(
+            username='test_user',
+            token='test_token',
+            cache_file=cache_file,
+            use_cache=False
+        )
+        analyzer.api_client.get = Mock()
+        yield analyzer
+
+        if os.path.exists(cache_file):
+            os.remove(cache_file)
+
+    def test_pr_with_labels(self, mock_analyzer):
+        """Test that PR labels are correctly extracted."""
+        pr = {
+            'number': 123,
+            'user': {'login': 'pr_author'},
+            'title': 'Test PR',
+            'html_url': 'https://github.com/test/repo/pull/123',
+            'created_at': '2024-01-01T00:00:00Z',
+            'updated_at': '2024-01-02T00:00:00Z'
+        }
+
+        pr_details_response = Mock()
+        pr_details_response.status_code = 200
+        pr_details_response.json.return_value = {
+            'additions': 100,
+            'deletions': 50,
+            'requested_reviewers': [],
+            'labels': [
+                {'name': 'ready to merge'},
+                {'name': 'developer approved'},
+                {'name': 'bug'}
+            ]
+        }
+
+        reviews = []
+
+        mock_analyzer.api_client.get.return_value = pr_details_response
+        with patch.object(mock_analyzer, '_get_paginated', side_effect=[reviews, []]):
+            result = mock_analyzer._check_and_create_pr_info('test/repo', pr)
+
+        assert result is not None
+        assert 'labels' in result
+        assert 'ready to merge' in result['labels']
+        assert 'developer approved' in result['labels']
+        assert 'bug' in result['labels']
+        assert len(result['labels']) == 3
+
+    def test_pr_without_labels(self, mock_analyzer):
+        """Test that PR without labels returns empty list."""
+        pr = {
+            'number': 123,
+            'user': {'login': 'pr_author'},
+            'title': 'Test PR',
+            'html_url': 'https://github.com/test/repo/pull/123',
+            'created_at': '2024-01-01T00:00:00Z',
+            'updated_at': '2024-01-02T00:00:00Z'
+        }
+
+        pr_details_response = Mock()
+        pr_details_response.status_code = 200
+        pr_details_response.json.return_value = {
+            'additions': 100,
+            'deletions': 50,
+            'requested_reviewers': [],
+            'labels': []
+        }
+
+        reviews = []
+
+        mock_analyzer.api_client.get.return_value = pr_details_response
+        with patch.object(mock_analyzer, '_get_paginated', side_effect=[reviews, []]):
+            result = mock_analyzer._check_and_create_pr_info('test/repo', pr)
+
+        assert result is not None
+        assert 'labels' in result
+        assert result['labels'] == []
+
+    def test_pr_with_special_labels(self, mock_analyzer):
+        """Test detection of special labels like 'ready to merge', 'developer approved', etc."""
+        pr = {
+            'number': 123,
+            'user': {'login': 'pr_author'},
+            'title': 'Test PR',
+            'html_url': 'https://github.com/test/repo/pull/123',
+            'created_at': '2024-01-01T00:00:00Z',
+            'updated_at': '2024-01-02T00:00:00Z'
+        }
+
+        pr_details_response = Mock()
+        pr_details_response.status_code = 200
+        pr_details_response.json.return_value = {
+            'additions': 100,
+            'deletions': 50,
+            'requested_reviewers': [],
+            'labels': [
+                {'name': 'ready to merge'},
+                {'name': 'maintainer approved'}
+            ]
+        }
+
+        reviews = []
+
+        mock_analyzer.api_client.get.return_value = pr_details_response
+        with patch.object(mock_analyzer, '_get_paginated', side_effect=[reviews, []]):
+            result = mock_analyzer._check_and_create_pr_info('test/repo', pr)
+
+        assert result is not None
+        assert 'ready to merge' in result['labels']
+        assert 'maintainer approved' in result['labels']
+
+
+class TestMyReviewDismissedDetection:
+    """Test cases for detecting when my review was dismissed."""
+
+    @pytest.fixture
+    def mock_analyzer(self):
+        """Create analyzer with mocked API client."""
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.json') as f:
+            cache_file = f.name
+
+        analyzer = GitHubReviewAnalyzer(
+            username='test_user',
+            token='test_token',
+            cache_file=cache_file,
+            use_cache=False
+        )
+        analyzer.api_client.get = Mock()
+        yield analyzer
+
+        if os.path.exists(cache_file):
+            os.remove(cache_file)
+
+    def test_my_review_not_dismissed(self, mock_analyzer):
+        """Test that my_review_dismissed is False when my review is active."""
+        pr = {
+            'number': 123,
+            'user': {'login': 'pr_author'},
+            'title': 'Test PR',
+            'html_url': 'https://github.com/test/repo/pull/123',
+            'created_at': '2024-01-01T00:00:00Z',
+            'updated_at': '2024-01-02T00:00:00Z'
+        }
+
+        pr_details_response = Mock()
+        pr_details_response.status_code = 200
+        pr_details_response.json.return_value = {
+            'additions': 100,
+            'deletions': 50,
+            'requested_reviewers': [],
+            'labels': []
+        }
+
+        # I have reviewed but it's not dismissed
+        reviews = [
+            {
+                'user': {'login': 'test_user'},
+                'state': 'APPROVED',
+                'submitted_at': '2024-01-02T10:00:00Z'
+            }
+        ]
+
+        mock_analyzer.api_client.get.return_value = pr_details_response
+        with patch.object(mock_analyzer, '_get_paginated', side_effect=[reviews, []]):
+            result = mock_analyzer._check_and_create_pr_info('test/repo', pr)
+
+        # Should return None since I already reviewed and it's not dismissed
+        assert result is None
+
+
+    def test_my_multiple_reviews_one_dismissed(self, mock_analyzer):
+        """Test my_previous_review_count with multiple reviews."""
+        pr = {
+            'number': 123,
+            'user': {'login': 'pr_author'},
+            'title': 'Test PR',
+            'html_url': 'https://github.com/test/repo/pull/123',
+            'created_at': '2024-01-01T00:00:00Z',
+            'updated_at': '2024-01-02T00:00:00Z'
+        }
+
+        pr_details_response = Mock()
+        pr_details_response.status_code = 200
+        pr_details_response.json.return_value = {
+            'additions': 100,
+            'deletions': 50,
+            'requested_reviewers': [],
+            'labels': []
+        }
+
+        # I have multiple reviews, one dismissed
+        reviews = [
+            {
+                'user': {'login': 'test_user'},
+                'state': 'CHANGES_REQUESTED',
+                'submitted_at': '2024-01-02T09:00:00Z'
+            },
+            {
+                'user': {'login': 'test_user'},
+                'state': 'APPROVED',
+                'submitted_at': '2024-01-02T10:00:00Z'
+            },
+            {
+                'user': {'login': 'test_user'},
+                'state': 'DISMISSED',
+                'submitted_at': '2024-01-03T10:00:00Z'
+            },
+            {
+                'user': {'login': 'other_user'},
+                'state': 'APPROVED',
+                'submitted_at': '2024-01-02T11:00:00Z'
+            }
+        ]
+
+        mock_analyzer.api_client.get.return_value = pr_details_response
+        with patch.object(mock_analyzer, '_get_paginated', side_effect=[reviews, []]):
+            result = mock_analyzer._check_and_create_pr_info('test/repo', pr)
+
+        assert result is not None
+        assert result['my_review_dismissed'] is True
+        assert result['my_previous_review_count'] == 3  # Three of my reviews
+
+    def test_my_review_with_comments_not_dismissed(self, mock_analyzer):
+        """Test that having comments doesn't affect dismissed status."""
+        pr = {
+            'number': 123,
+            'user': {'login': 'pr_author'},
+            'title': 'Test PR',
+            'html_url': 'https://github.com/test/repo/pull/123',
+            'created_at': '2024-01-01T00:00:00Z',
+            'updated_at': '2024-01-02T00:00:00Z'
+        }
+
+        pr_details_response = Mock()
+        pr_details_response.status_code = 200
+        pr_details_response.json.return_value = {
+            'additions': 100,
+            'deletions': 50,
+            'requested_reviewers': [],
+            'labels': []
+        }
+
+        reviews = [
+            {
+                'user': {'login': 'test_user'},
+                'state': 'APPROVED',
+                'submitted_at': '2024-01-02T10:00:00Z'
+            }
+        ]
+
+        comments = [
+            {
+                'user': {'login': 'test_user'},
+                'body': 'Looks good!',
+                'created_at': '2024-01-02T10:05:00Z'
+            }
+        ]
+
+        mock_analyzer.api_client.get.return_value = pr_details_response
+        with patch.object(mock_analyzer, '_get_paginated', side_effect=[reviews, comments]):
+            result = mock_analyzer._check_and_create_pr_info('test/repo', pr)
+
+        # Should return None since I already reviewed and it's not dismissed
+        assert result is None
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
