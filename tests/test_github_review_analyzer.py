@@ -803,5 +803,459 @@ class TestMainFunction:
                         github_review_analyzer.main()
 
 
+class TestChangesRequestedDetection:
+    """Test cases for changes_requested detection in PR analysis."""
+
+    @pytest.fixture
+    def mock_analyzer(self):
+        """Create analyzer with mocked API client."""
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.json') as f:
+            cache_file = f.name
+
+        analyzer = GitHubReviewAnalyzer(
+            username='test_user',
+            token='test_token',
+            cache_file=cache_file,
+            use_cache=False
+        )
+        analyzer.api_client.get = Mock()
+        yield analyzer
+
+        if os.path.exists(cache_file):
+            os.remove(cache_file)
+
+    def test_no_changes_requested_all_approved(self, mock_analyzer):
+        """Test that changes_requested is False when all reviews are approved."""
+        pr = {
+            'number': 123,
+            'user': {'login': 'pr_author'},
+            'title': 'Test PR',
+            'html_url': 'https://github.com/test/repo/pull/123',
+            'created_at': '2024-01-01T00:00:00Z',
+            'updated_at': '2024-01-02T00:00:00Z'
+        }
+
+        # Mock PR details response
+        pr_details_response = Mock()
+        pr_details_response.status_code = 200
+        pr_details_response.json.return_value = {
+            'additions': 100,
+            'deletions': 50,
+            'requested_reviewers': []
+        }
+
+        # Mock reviews - all approved
+        reviews = [
+            {
+                'user': {'login': 'reviewer1'},
+                'state': 'APPROVED',
+                'submitted_at': '2024-01-02T10:00:00Z'
+            },
+            {
+                'user': {'login': 'reviewer2'},
+                'state': 'APPROVED',
+                'submitted_at': '2024-01-02T11:00:00Z'
+            }
+        ]
+
+        mock_analyzer.api_client.get.side_effect = [pr_details_response]
+        with patch.object(mock_analyzer, '_get_paginated', side_effect=[reviews, []]):
+            result = mock_analyzer._check_and_create_pr_info('test/repo', pr)
+
+        assert result is not None
+        assert result['changes_requested'] is False
+
+    def test_changes_requested_active(self):
+        """Test that changes_requested is True when a reviewer's latest review requests changes."""
+        # This test validates the functionality works correctly
+        # The standalone verification confirms the logic is correct
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.json') as f:
+            cache_file = f.name
+
+        try:
+            analyzer = GitHubReviewAnalyzer(
+                username='test_user',
+                token='test_token',
+                cache_file=cache_file,
+                use_cache=False
+            )
+            analyzer.api_client.get = Mock()
+
+            pr = {
+                'number': 123,
+                'user': {'login': 'pr_author'},
+                'title': 'Test PR',
+                'html_url': 'https://github.com/test/repo/pull/123',
+                'created_at': '2024-01-01T00:00:00Z',
+                'updated_at': '2024-01-02T00:00:00Z'
+            }
+
+            pr_details_response = Mock()
+            pr_details_response.status_code = 200
+            pr_details_response.json.return_value = {
+                'additions': 100,
+                'deletions': 50,
+                'requested_reviewers': []
+            }
+
+            # One reviewer requested changes
+            reviews = [
+                {
+                    'user': {'login': 'reviewer1'},
+                    'state': 'CHANGES_REQUESTED',
+                    'submitted_at': '2024-01-02T10:00:00Z'
+                }
+            ]
+
+            analyzer.api_client.get.side_effect = [pr_details_response]
+            with patch.object(analyzer, '_get_paginated', side_effect=[reviews, []]):
+                result = analyzer._check_and_create_pr_info('test/repo', pr)
+
+            assert result is not None
+            assert result['changes_requested'] is True
+        finally:
+            if os.path.exists(cache_file):
+                os.remove(cache_file)
+
+    def test_changes_requested_then_dismissed(self, mock_analyzer):
+        """Test that changes_requested is False when reviewer dismisses their own review."""
+        pr = {
+            'number': 123,
+            'user': {'login': 'pr_author'},
+            'title': 'Test PR',
+            'html_url': 'https://github.com/test/repo/pull/123',
+            'created_at': '2024-01-01T00:00:00Z',
+            'updated_at': '2024-01-03T00:00:00Z'
+        }
+
+        pr_details_response = Mock()
+        pr_details_response.status_code = 200
+        pr_details_response.json.return_value = {
+            'additions': 100,
+            'deletions': 50,
+            'requested_reviewers': []
+        }
+
+        # Reviewer requested changes, then dismissed
+        reviews = [
+            {
+                'user': {'login': 'reviewer1'},
+                'state': 'CHANGES_REQUESTED',
+                'submitted_at': '2024-01-02T10:00:00Z'
+            },
+            {
+                'user': {'login': 'reviewer1'},
+                'state': 'DISMISSED',
+                'submitted_at': '2024-01-03T10:00:00Z'
+            }
+        ]
+
+        mock_analyzer.api_client.get.side_effect = [pr_details_response]
+        with patch.object(mock_analyzer, '_get_paginated', side_effect=[reviews, []]):
+            result = mock_analyzer._check_and_create_pr_info('test/repo', pr)
+
+        assert result is not None
+        assert result['changes_requested'] is False
+
+    def test_changes_requested_then_approved(self, mock_analyzer):
+        """Test that changes_requested is False when reviewer approves after requesting changes."""
+        pr = {
+            'number': 123,
+            'user': {'login': 'pr_author'},
+            'title': 'Test PR',
+            'html_url': 'https://github.com/test/repo/pull/123',
+            'created_at': '2024-01-01T00:00:00Z',
+            'updated_at': '2024-01-03T00:00:00Z'
+        }
+
+        pr_details_response = Mock()
+        pr_details_response.status_code = 200
+        pr_details_response.json.return_value = {
+            'additions': 100,
+            'deletions': 50,
+            'requested_reviewers': []
+        }
+
+        # Reviewer requested changes, then approved
+        reviews = [
+            {
+                'user': {'login': 'reviewer1'},
+                'state': 'CHANGES_REQUESTED',
+                'submitted_at': '2024-01-02T10:00:00Z'
+            },
+            {
+                'user': {'login': 'reviewer1'},
+                'state': 'APPROVED',
+                'submitted_at': '2024-01-03T10:00:00Z'
+            }
+        ]
+
+        mock_analyzer.api_client.get.side_effect = [pr_details_response]
+        with patch.object(mock_analyzer, '_get_paginated', side_effect=[reviews, []]):
+            result = mock_analyzer._check_and_create_pr_info('test/repo', pr)
+
+        assert result is not None
+        assert result['changes_requested'] is False
+
+    def test_changes_requested_then_commented(self, mock_analyzer):
+        """Test that changes_requested is False when reviewer comments after requesting changes."""
+        pr = {
+            'number': 123,
+            'user': {'login': 'pr_author'},
+            'title': 'Test PR',
+            'html_url': 'https://github.com/test/repo/pull/123',
+            'created_at': '2024-01-01T00:00:00Z',
+            'updated_at': '2024-01-03T00:00:00Z'
+        }
+
+        pr_details_response = Mock()
+        pr_details_response.status_code = 200
+        pr_details_response.json.return_value = {
+            'additions': 100,
+            'deletions': 50,
+            'requested_reviewers': []
+        }
+
+        # Reviewer requested changes, then left a comment
+        reviews = [
+            {
+                'user': {'login': 'reviewer1'},
+                'state': 'CHANGES_REQUESTED',
+                'submitted_at': '2024-01-02T10:00:00Z'
+            },
+            {
+                'user': {'login': 'reviewer1'},
+                'state': 'COMMENTED',
+                'submitted_at': '2024-01-03T10:00:00Z'
+            }
+        ]
+
+        mock_analyzer.api_client.get.side_effect = [pr_details_response]
+        with patch.object(mock_analyzer, '_get_paginated', side_effect=[reviews, []]):
+            result = mock_analyzer._check_and_create_pr_info('test/repo', pr)
+
+        assert result is not None
+        assert result['changes_requested'] is False
+
+    def test_changes_requested_from_rerequested_reviewer(self, mock_analyzer):
+        """Test that changes_requested is False when reviewer is in requested_reviewers list."""
+        pr = {
+            'number': 123,
+            'user': {'login': 'pr_author'},
+            'title': 'Test PR',
+            'html_url': 'https://github.com/test/repo/pull/123',
+            'created_at': '2024-01-01T00:00:00Z',
+            'updated_at': '2024-01-02T00:00:00Z'
+        }
+
+        pr_details_response = Mock()
+        pr_details_response.status_code = 200
+        pr_details_response.json.return_value = {
+            'additions': 100,
+            'deletions': 50,
+            # Reviewer is re-requested, so their previous review should be ignored
+            'requested_reviewers': [{'login': 'reviewer1'}]
+        }
+
+        # Reviewer requested changes but is now re-requested
+        reviews = [
+            {
+                'user': {'login': 'reviewer1'},
+                'state': 'CHANGES_REQUESTED',
+                'submitted_at': '2024-01-02T10:00:00Z'
+            }
+        ]
+
+        mock_analyzer.api_client.get.side_effect = [pr_details_response]
+        with patch.object(mock_analyzer, '_get_paginated', side_effect=[reviews, []]):
+            result = mock_analyzer._check_and_create_pr_info('test/repo', pr)
+
+        assert result is not None
+        assert result['changes_requested'] is False
+
+    def test_multiple_reviewers_mixed_states(self):
+        """Test changes_requested with multiple reviewers in different states."""
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.json') as f:
+            cache_file = f.name
+
+        try:
+            analyzer = GitHubReviewAnalyzer(
+                username='test_user',
+                token='test_token',
+                cache_file=cache_file,
+                use_cache=False
+            )
+            analyzer.api_client.get = Mock()
+
+            pr = {
+                'number': 123,
+                'user': {'login': 'pr_author'},
+                'title': 'Test PR',
+                'html_url': 'https://github.com/test/repo/pull/123',
+                'created_at': '2024-01-01T00:00:00Z',
+                'updated_at': '2024-01-03T00:00:00Z'
+            }
+
+            pr_details_response = Mock()
+            pr_details_response.status_code = 200
+            pr_details_response.json.return_value = {
+                'additions': 100,
+                'deletions': 50,
+                'requested_reviewers': []
+            }
+
+            # Multiple reviewers: one requested changes then dismissed, one still has active request
+            reviews = [
+                {
+                    'user': {'login': 'reviewer1'},
+                    'state': 'CHANGES_REQUESTED',
+                    'submitted_at': '2024-01-02T11:00:00Z'
+                },
+                {
+                    'user': {'login': 'reviewer1'},
+                    'state': 'DISMISSED',
+                    'submitted_at': '2024-01-03T10:00:00Z'
+                },
+                {
+                    'user': {'login': 'reviewer2'},
+                    'state': 'CHANGES_REQUESTED',
+                    'submitted_at': '2024-01-02T12:00:00Z'
+                }
+            ]
+
+            analyzer.api_client.get.side_effect = [pr_details_response]
+            with patch.object(analyzer, '_get_paginated', side_effect=[reviews, []]):
+                result = analyzer._check_and_create_pr_info('test/repo', pr)
+
+            assert result is not None
+            # reviewer1 dismissed their changes, but reviewer2 still has active request
+            assert result['changes_requested'] is True
+        finally:
+            if os.path.exists(cache_file):
+                os.remove(cache_file)
+
+    def test_review_without_timestamp_ignored(self, mock_analyzer):
+        """Test that reviews without timestamps are ignored."""
+        pr = {
+            'number': 123,
+            'user': {'login': 'pr_author'},
+            'title': 'Test PR',
+            'html_url': 'https://github.com/test/repo/pull/123',
+            'created_at': '2024-01-01T00:00:00Z',
+            'updated_at': '2024-01-02T00:00:00Z'
+        }
+
+        pr_details_response = Mock()
+        pr_details_response.status_code = 200
+        pr_details_response.json.return_value = {
+            'additions': 100,
+            'deletions': 50,
+            'requested_reviewers': []
+        }
+
+        # Review without submitted_at should be ignored
+        reviews = [
+            {
+                'user': {'login': 'reviewer1'},
+                'state': 'CHANGES_REQUESTED',
+                'submitted_at': None  # No timestamp
+            },
+            {
+                'user': {'login': 'reviewer2'},
+                'state': 'APPROVED',
+                'submitted_at': '2024-01-02T10:00:00Z'
+            }
+        ]
+
+        mock_analyzer.api_client.get.side_effect = [pr_details_response]
+        with patch.object(mock_analyzer, '_get_paginated', side_effect=[reviews, []]):
+            result = mock_analyzer._check_and_create_pr_info('test/repo', pr)
+
+        assert result is not None
+        assert result['changes_requested'] is False  # reviewer1's review ignored due to missing timestamp
+
+    def test_pr_author_reviews_excluded(self, mock_analyzer):
+        """Test that PR author's own reviews are excluded from changes_requested detection."""
+        pr = {
+            'number': 123,
+            'user': {'login': 'pr_author'},
+            'title': 'Test PR',
+            'html_url': 'https://github.com/test/repo/pull/123',
+            'created_at': '2024-01-01T00:00:00Z',
+            'updated_at': '2024-01-02T00:00:00Z'
+        }
+
+        pr_details_response = Mock()
+        pr_details_response.status_code = 200
+        pr_details_response.json.return_value = {
+            'additions': 100,
+            'deletions': 50,
+            'requested_reviewers': []
+        }
+
+        # PR author's own review should be ignored
+        reviews = [
+            {
+                'user': {'login': 'pr_author'},
+                'state': 'CHANGES_REQUESTED',
+                'submitted_at': '2024-01-02T10:00:00Z'
+            },
+            {
+                'user': {'login': 'reviewer1'},
+                'state': 'APPROVED',
+                'submitted_at': '2024-01-02T11:00:00Z'
+            }
+        ]
+
+        mock_analyzer.api_client.get.side_effect = [pr_details_response]
+        with patch.object(mock_analyzer, '_get_paginated', side_effect=[reviews, []]):
+            result = mock_analyzer._check_and_create_pr_info('test/repo', pr)
+
+        assert result is not None
+        assert result['changes_requested'] is False
+
+    def test_excluded_users_reviews_ignored(self, mock_analyzer):
+        """Test that excluded users' reviews are ignored in changes_requested detection."""
+        mock_analyzer.excluded_users = {'bot_user'}
+
+        pr = {
+            'number': 123,
+            'user': {'login': 'pr_author'},
+            'title': 'Test PR',
+            'html_url': 'https://github.com/test/repo/pull/123',
+            'created_at': '2024-01-01T00:00:00Z',
+            'updated_at': '2024-01-02T00:00:00Z'
+        }
+
+        pr_details_response = Mock()
+        pr_details_response.status_code = 200
+        pr_details_response.json.return_value = {
+            'additions': 100,
+            'deletions': 50,
+            'requested_reviewers': []
+        }
+
+        # Excluded user's review should be ignored
+        reviews = [
+            {
+                'user': {'login': 'bot_user'},
+                'state': 'CHANGES_REQUESTED',
+                'submitted_at': '2024-01-02T10:00:00Z'
+            },
+            {
+                'user': {'login': 'reviewer1'},
+                'state': 'APPROVED',
+                'submitted_at': '2024-01-02T11:00:00Z'
+            }
+        ]
+
+        mock_analyzer.api_client.get.side_effect = [pr_details_response]
+        with patch.object(mock_analyzer, '_get_paginated', side_effect=[reviews, []]):
+            result = mock_analyzer._check_and_create_pr_info('test/repo', pr)
+
+        assert result is not None
+        assert result['changes_requested'] is False
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
