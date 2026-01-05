@@ -788,20 +788,17 @@ class OutputFormatter:
 
         .back-to-table {{
             display: inline-block;
-            margin-bottom: 15px;
-            padding: 8px 16px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            color: #667eea;
             text-decoration: none;
-            border-radius: 6px;
-            font-size: 0.9em;
-            font-weight: 500;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            font-size: 0.85em;
+            opacity: 0.7;
+            transition: opacity 0.2s ease;
+            margin-right: 10px;
         }}
 
         .back-to-table:hover {{
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+            opacity: 1;
+            text-decoration: underline;
         }}
 
         @media (max-width: 768px) {{
@@ -1129,10 +1126,11 @@ class OutputFormatter:
                 priority_text = ""
 
             html += f'<div class="author-section" id="user-{author}">\n'
-            html += f'<a href="#" class="back-to-table" data-username="{author}">← Back to table</a>\n'
-            html += f'<div class="author-name">From <a href="https://github.com/{author}" class="author-link" target="_blank">{author}</a>'
+            html += f'<div class="author-name">'
+            html += f'From <a href="https://github.com/{author}" class="author-link" target="_blank">{author}</a>'
             if priority_text:
                 html += f' <span style="color: #28a745;">({priority_text})</span>'
+            html += f' <a href="#" class="back-to-table" data-username="{author}">↑ overview</a>'
             html += '</div>\n'
             html += '<ul class="pr-list">\n'
 
