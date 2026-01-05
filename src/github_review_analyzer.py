@@ -680,6 +680,7 @@ class GitHubReviewAnalyzer:
             requested_my_review = False
             changes_requested = False
 
+            requested_reviewer_logins = set()
             if pr_details_response.status_code == 200:
                 pr_details = pr_details_response.json()
                 additions = pr_details.get('additions', 0)
@@ -687,10 +688,8 @@ class GitHubReviewAnalyzer:
 
                 # Check if I was requested to review
                 requested_reviewers = pr_details.get('requested_reviewers', [])
-                requested_my_review = any(
-                    reviewer['login'] == self.username
-                    for reviewer in requested_reviewers
-                )
+                requested_reviewer_logins = {r['login'] for r in requested_reviewers}
+                requested_my_review = self.username in requested_reviewer_logins
 
                 # Apply file filtering if enabled - check cache first
                 if self.exclude_generated_files:
@@ -703,15 +702,14 @@ class GitHubReviewAnalyzer:
             unique_reviewers = set()
             pr_author = pr['user']['login']
 
-            # Track all non-dismissed reviews
+            # Track all reviews (including dismissed ones - we need them to find latest state)
             valid_reviews = []
             for review in reviews:
                 reviewer = review['user']['login']
-                review_state = review.get('state', '')
                 submitted_at = review.get('submitted_at')
 
-                # Skip dismissed reviews and reviews without timestamps
-                if review_state == 'DISMISSED' or not submitted_at:
+                # Skip reviews without timestamps
+                if not submitted_at:
                     continue
 
                 if reviewer != pr_author and reviewer not in self.excluded_users:
@@ -726,10 +724,16 @@ class GitHubReviewAnalyzer:
 
             # Check if any reviewer's latest review is CHANGES_REQUESTED
             # A reviewer's change request is cleared if they submit ANY new review
-            # (APPROVED, COMMENTED, or even another CHANGES_REQUESTED counts as their latest state)
+            # (APPROVED, COMMENTED, DISMISSED, etc. - anything other than CHANGES_REQUESTED)
+            # Also skip if the reviewer is in requested_reviewers (review was re-requested)
             changes_requested = False
 
             for reviewer, reviewer_reviews in reviews_by_reviewer.items():
+                # Skip reviewers who are still in the requested_reviewers list
+                # (their review was re-requested, clearing the previous state)
+                if reviewer in requested_reviewer_logins:
+                    continue
+
                 # Sort by submitted_at to get the most recent
                 sorted_reviews = sorted(
                     reviewer_reviews,
@@ -741,6 +745,7 @@ class GitHubReviewAnalyzer:
                     review_state = latest_review.get('state')
 
                     # Only count as active change request if their LATEST review is CHANGES_REQUESTED
+                    # (DISMISSED, APPROVED, COMMENTED all clear the change request)
                     if review_state == 'CHANGES_REQUESTED':
                         changes_requested = True
                         break
@@ -814,6 +819,7 @@ class GitHubReviewAnalyzer:
         deletions = 0
         review_count = 0
         requested_my_review = False
+        requested_reviewer_logins = set()
 
         try:
             # Fetch PR details and reviews in parallel
@@ -829,10 +835,8 @@ class GitHubReviewAnalyzer:
 
                     # Check if I was requested to review this PR
                     requested_reviewers = pr_details.get('requested_reviewers', [])
-                    requested_my_review = any(
-                        reviewer['login'] == self.username
-                        for reviewer in requested_reviewers
-                    )
+                    requested_reviewer_logins = {r['login'] for r in requested_reviewers}
+                    requested_my_review = self.username in requested_reviewer_logins
 
                     # Apply file filtering if enabled
                     if self.exclude_generated_files:
@@ -846,15 +850,14 @@ class GitHubReviewAnalyzer:
                 unique_reviewers = set()
                 pr_author = pr['user']['login']
 
-                # Track all non-dismissed reviews
+                # Track all reviews (including dismissed ones - we need them to find latest state)
                 valid_reviews = []
                 for review in reviews:
                     reviewer = review['user']['login']
-                    review_state = review.get('state', '')
                     submitted_at = review.get('submitted_at')
 
-                    # Skip dismissed reviews and reviews without timestamps
-                    if review_state == 'DISMISSED' or not submitted_at:
+                    # Skip reviews without timestamps
+                    if not submitted_at:
                         continue
 
                     if reviewer != pr_author and reviewer not in self.excluded_users:
@@ -869,10 +872,16 @@ class GitHubReviewAnalyzer:
 
                 # Check if any reviewer's latest review is CHANGES_REQUESTED
                 # A reviewer's change request is cleared if they submit ANY new review
-                # (APPROVED, COMMENTED, or even another CHANGES_REQUESTED counts as their latest state)
+                # (APPROVED, COMMENTED, DISMISSED, etc. - anything other than CHANGES_REQUESTED)
+                # Also skip if the reviewer is in requested_reviewers (review was re-requested)
                 changes_requested = False
 
                 for reviewer, reviewer_reviews in reviews_by_reviewer.items():
+                    # Skip reviewers who are still in the requested_reviewers list
+                    # (their review was re-requested, clearing the previous state)
+                    if reviewer in requested_reviewer_logins:
+                        continue
+
                     # Sort by submitted_at to get the most recent
                     sorted_reviews = sorted(
                         reviewer_reviews,
@@ -884,6 +893,7 @@ class GitHubReviewAnalyzer:
                         review_state = latest_review.get('state')
 
                         # Only count as active change request if their LATEST review is CHANGES_REQUESTED
+                        # (DISMISSED, APPROVED, COMMENTED all clear the change request)
                         if review_state == 'CHANGES_REQUESTED':
                             changes_requested = True
                             break
