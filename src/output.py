@@ -1223,7 +1223,8 @@ class OutputFormatter:
     def _generate_my_open_prs_html(self, my_open_prs: list) -> str:
         """Generate HTML for my open PRs section with copyable messages per PR."""
         html = '<div class="my-prs-section">\n'
-        html += '<h2>My Open PRs Needing Review</h2>\n'
+        html += '<details>\n'
+        html += '<summary style="cursor: pointer; font-weight: 600; font-size: 1.5em; color: #667eea; padding: 15px; margin: -20px -20px 20px -20px; background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%); border-radius: 8px; user-select: none;">My Open PRs Needing Review</summary>\n'
         html += f'<p>You have <strong>{len(my_open_prs)}</strong> open PR(s). Click either button to copy a Slack-ready message requesting code review or testing.</p>\n'
 
         for pr in my_open_prs:
@@ -1261,6 +1262,7 @@ class OutputFormatter:
             html += '</div>\n'
             html += '</div>\n'
 
+        html += '</details>\n'
         html += '</div>\n'
 
         return html

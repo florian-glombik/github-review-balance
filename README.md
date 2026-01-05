@@ -15,21 +15,51 @@ A Python script to analyze GitHub pull request review activity between you and o
 
 ## Output
 
-The script generates a comprehensive report with **color-coded sections** for easy readability.
+The script generates both **console output** and an **interactive HTML report** with color-coded sections for easy readability.
+
+### HTML Report
+
+The tool automatically generates an interactive HTML report saved to your current directory with a filename like `github_review_analysis_<username>_<timestamp>.html`. This report includes:
+
+- **Interactive sortable tables** - Click column headers to sort by different metrics
+- **Clickable rows** - Click on a user to jump to their open PRs
+- **Collapsible sections** - Expand/collapse detailed information as needed
+- **Copy-to-Slack buttons** - One-click copying of formatted review request messages
+- **Visual feedback** - Color-coded priorities and review balances
+- **Review history** - Detailed per-user review metrics and PR lists
 
 ### 1. Review Balance Table
 
 ![Review Balance Table Example](assets/tableExample.png)
 
-### 2. Open PRs That Need Your Review
+The review balance table shows:
+- Total PR interactions with each collaborator
+- Lines reviewed in both directions (with +additions/-deletions breakdown)
+- Review balance and recommended next actions
+- Click any user to jump to their open PRs
+
+### 2. My Open PRs Needing Review
+
+A collapsible section showing your open PRs with:
+- **Two buttons per PR**: One for code review requests, one for testing requests
+- **Slack-ready messages**: Click to copy formatted messages to your clipboard
+- **PR metrics**: Line changes, repository info, and direct links
+
+### 3. Open PRs That Need Your Review
 
 ![Open PRs Example](assets/PRsToReviewExample.png)
 
+Shows PRs awaiting your review, grouped by author with:
+- **Priority indicators**: Based on your review balance with each author
+- **Review status badges**: Shows review count, changes requested, etc.
+- **Personalized messages**: Click to copy a customized Slack review request for each author
+- **Review history**: Expandable section showing your past interactions with each author
 
-### 3. Deep dive per collaborator
+### 4. Deep dive per collaborator
 - Complete metrics: PRs reviewed, lines reviewed, review events, comments
 - Full list of PRs you reviewed with titles and links
 - Full list of PRs they reviewed with titles and links
+- Expandable sections to keep the report clean and focused
 
 ## Prerequisites
 
@@ -77,6 +107,14 @@ Simply run the script and follow the prompts (or provide parameters via `.env` f
 ```bash
 python3 github-review-analyzer.py
 ```
+
+The script will:
+1. Analyze your PR review activity
+2. Display a summary in the console
+3. **Generate an HTML report** saved to the current directory
+4. Print the path to the HTML file for easy access
+
+Open the generated HTML file in your browser to access the full interactive report with sortable tables, collapsible sections, and copy-to-Slack functionality.
 
 ## Configuration Options
 
@@ -157,15 +195,12 @@ MAX_REVIEW_COUNT_THRESHOLD=2
 ```
 
 **Example output:**
-```
-You have 8 open PR(s) to review (4 filtered out by threshold):
 
-From alice-smith (Priority: You owe them 7,462 lines):
-  • [awesome-app] #1234: Feature: Add user authentication system
-    https://github.com/acme-corp/awesome-app/pull/1234 (+346 / -245 lines) [0 review(s)]
-  • [awesome-app] #1256: Fix: Resolve memory leak in data processor
-    https://github.com/acme-corp/awesome-app/pull/1256 (+189 / -52 lines) [1 review(s)] [REQUESTED]
-```
+In the HTML report, filtered PRs are shown at the top of the "Open PRs That Need Your Review" section with clear indicators:
+- Green-highlighted PRs indicate you owe them reviews (positive balance)
+- Priority messages show the line count balance
+- Badges indicate review count, requested reviews, and changes requested
+- Each PR has buttons to copy personalized Slack review requests
 
 ### Table Sorting
 
