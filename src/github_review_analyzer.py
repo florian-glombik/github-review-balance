@@ -656,15 +656,10 @@ class GitHubReviewAnalyzer:
         comments_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/comments"
 
         try:
-            # Fetch all data in parallel
-            with ThreadPoolExecutor(max_workers=3) as executor:
-                future_details = executor.submit(self.api_client.get, pr_details_url)
-                future_reviews = executor.submit(self._get_paginated, reviews_url, use_cache=False)
-                future_comments = executor.submit(self._get_paginated, comments_url, use_cache=False)
-
-                pr_details_response = future_details.result()
-                reviews = future_reviews.result()
-                comments = future_comments.result()
+            # Fetch PR details first, then reviews and comments sequentially to ensure deterministic ordering
+            pr_details_response = self.api_client.get(pr_details_url)
+            reviews = self._get_paginated(reviews_url, use_cache=False)
+            comments = self._get_paginated(comments_url, use_cache=False)
 
             # Check if I've already reviewed
             my_reviews = [r for r in reviews if r['user']['login'] == self.username]
@@ -675,15 +670,26 @@ class GitHubReviewAnalyzer:
             my_previous_review_count = 0
 
             if my_reviews or my_comments:
-                # Check if any of my reviews were dismissed
-                for review in my_reviews:
-                    my_previous_review_count += 1
-                    if review.get('state') == 'DISMISSED':
-                        my_review_dismissed = True
+                my_previous_review_count = len(my_reviews)
 
-                # If I have non-dismissed reviews or comments, I've already reviewed and shouldn't review again
-                if not my_review_dismissed:
-                    return None  # Already reviewed and not dismissed
+                # Check if my LATEST review was dismissed
+                if my_reviews:
+                    # Sort by submitted_at to get the latest review
+                    sorted_my_reviews = sorted(
+                        my_reviews,
+                        key=lambda r: r.get('submitted_at', ''),
+                        reverse=True
+                    )
+                    latest_review = sorted_my_reviews[0]
+
+                    if latest_review.get('state') == 'DISMISSED':
+                        my_review_dismissed = True
+                    else:
+                        # Latest review is not dismissed, so I've already reviewed
+                        return None
+                elif my_comments:
+                    # Only have comments, no reviews - I've already reviewed
+                    return None
 
             # Create PR info
             additions = 0
@@ -724,7 +730,8 @@ class GitHubReviewAnalyzer:
                 if not submitted_at:
                     continue
 
-                if reviewer != pr_author and reviewer not in self.excluded_users:
+                # Exclude PR author, myself, and excluded users from review tracking
+                if reviewer != pr_author and reviewer != self.username and reviewer not in self.excluded_users:
                     unique_reviewers.add(reviewer)
                     valid_reviews.append(review)
 
