@@ -19,7 +19,11 @@ The script generates both **console output** and an **interactive HTML report** 
 
 ### HTML Report
 
-The tool automatically generates an interactive HTML report saved to your current directory with a filename like `github_review_analysis_<username>_<timestamp>.html`. This report includes:
+The tool automatically generates an interactive HTML report saved to the `reports/` directory with a filename like `github_review_analysis_<username>_<timestamp>.html`.
+
+**[View Example Report](reports/github_review_analysis_florian-glombik_20260105_035933.html)**
+
+This report includes:
 
 - **Interactive sortable tables** - Click column headers to sort by different metrics
 - **Clickable rows** - Click on a user to jump to their open PRs
@@ -111,10 +115,12 @@ python3 github-review-analyzer.py
 The script will:
 1. Analyze your PR review activity
 2. Display a summary in the console
-3. **Generate an HTML report** saved to the current directory
+3. **Generate an HTML report** saved to the `reports/` directory
 4. Print the path to the HTML file for easy access
 
 Open the generated HTML file in your browser to access the full interactive report with sortable tables, collapsible sections, and copy-to-Slack functionality.
+
+**Note:** All generated reports are saved to the `reports/` folder, which is gitignored to keep your repository clean.
 
 ## Configuration Options
 

@@ -2,3 +2,4 @@
 .env
 .github_review_cache.json
 .coverage
+reports/

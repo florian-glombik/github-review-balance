@@ -1751,9 +1751,12 @@ class OutputFormatter:
         """
         html_content = self.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author, pr_authors, my_open_prs)
 
-        # Determine output directory
+        # Determine output directory - default to 'reports' folder
         if output_dir is None:
-            output_dir = os.getcwd()
+            output_dir = os.path.join(os.getcwd(), 'reports')
+
+        # Create reports directory if it doesn't exist
+        os.makedirs(output_dir, exist_ok=True)
 
         # Create filename with timestamp
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
