@@ -281,19 +281,26 @@ class OutputFormatter:
                 repo_short = pr['repo'].split('/')[-1]
                 review_count = pr.get('review_count', 0)
                 requested_my_review = pr.get('requested_my_review', False)
+                changes_requested = pr.get('changes_requested', False)
+
+                # Build status indicators
+                indicators = []
+                if changes_requested:
+                    indicators.append(f"{RED}⚠️  [CHANGES REQUESTED]{RESET}")
+                if requested_my_review:
+                    indicators.append(f"{CYAN}{BOLD}👉 [REVIEW REQUESTED]{RESET}")
 
                 # Use cyan/bold color for requested reviews to make them stand out
-                if requested_my_review:
-                    pr_color = CYAN + BOLD
-                    request_indicator = f" {CYAN}{BOLD}👉 [REVIEW REQUESTED]{RESET}"
+                if requested_my_review or changes_requested:
+                    pr_color = CYAN + BOLD if requested_my_review else RED
                 else:
                     pr_color = author_color
-                    request_indicator = ""
 
                 # Build review info string
                 review_info = f"[{review_count} review(s)]"
 
-                print(f"  {pr_color}• [{repo_short}] #{pr['number']}: {pr['title']}{RESET}{request_indicator}")
+                indicator_str = " ".join(indicators) if indicators else ""
+                print(f"  {pr_color}• [{repo_short}] #{pr['number']}: {pr['title']}{RESET} {indicator_str}")
                 print(f"    {pr['url']} (+{pr['additions']:,} / -{pr['deletions']:,} lines) {review_info}")
             print()
 
@@ -576,10 +583,21 @@ class OutputFormatter:
 
         .pr-item {{
             margin: 15px 0;
-            padding: 15px;
+            padding: 0;
             background: #f8f9fa;
             border-left: 4px solid #667eea;
             border-radius: 4px;
+        }}
+
+        .pr-item-link {{
+            display: block;
+            padding: 15px;
+            text-decoration: none;
+            color: inherit;
+        }}
+
+        .pr-item-link:hover {{
+            background: rgba(102, 126, 234, 0.05);
         }}
 
         .pr-item.priority-high {{
@@ -637,6 +655,15 @@ class OutputFormatter:
             margin-bottom: 10px;
         }}
 
+        .author-link {{
+            color: #667eea;
+            text-decoration: none;
+        }}
+
+        .author-link:hover {{
+            text-decoration: underline;
+        }}
+
         .stats-grid {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -679,6 +706,11 @@ class OutputFormatter:
 
         .badge-reviews {{
             background: #6c757d;
+            color: white;
+        }}
+
+        .badge-changes-requested {{
+            background: #dc3545;
             color: white;
         }}
 
@@ -941,7 +973,7 @@ class OutputFormatter:
                 priority_text = ""
 
             html += f'<div class="author-section">\n'
-            html += f'<div class="author-name">From {author}'
+            html += f'<div class="author-name">From <a href="https://github.com/{author}" class="author-link" target="_blank">{author}</a>'
             if priority_text:
                 html += f' <span style="color: #28a745;">({priority_text})</span>'
             html += '</div>\n'
@@ -951,21 +983,26 @@ class OutputFormatter:
                 repo_short = pr['repo'].split('/')[-1]
                 review_count = pr.get('review_count', 0)
                 requested_my_review = pr.get('requested_my_review', False)
+                changes_requested = pr.get('changes_requested', False)
 
                 pr_class = priority_class
                 if requested_my_review:
                     pr_class += " requested"
 
                 html += f'<li class="pr-item {pr_class}">\n'
+                html += f'<a href="{pr["url"]}" class="pr-item-link" target="_blank">\n'
                 html += f'<div class="pr-title">[{repo_short}] #{pr["number"]}: {pr["title"]}'
+                if changes_requested:
+                    html += '<span class="badge badge-changes-requested">CHANGES REQUESTED</span>'
                 if requested_my_review:
                     html += '<span class="badge badge-requested">REVIEW REQUESTED</span>'
                 html += f'<span class="badge badge-reviews">{review_count} review(s)</span>'
                 html += '</div>\n'
                 html += f'<div class="pr-meta">'
-                html += f'<a href="{pr["url"]}" class="pr-link" target="_blank">{pr["url"]}</a> '
+                html += f'{pr["url"]} '
                 html += f'(+{pr["additions"]:,} / -{pr["deletions"]:,} lines)'
                 html += '</div>\n'
+                html += '</a>\n'
                 html += '</li>\n'
 
             html += '</ul>\n</div>\n'

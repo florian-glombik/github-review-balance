@@ -678,6 +678,7 @@ class GitHubReviewAnalyzer:
             deletions = 0
             review_count = 0
             requested_my_review = False
+            changes_requested = False
 
             if pr_details_response.status_code == 200:
                 pr_details = pr_details_response.json()
@@ -698,14 +699,51 @@ class GitHubReviewAnalyzer:
                         additions = filtered_counts['additions']
                         deletions = filtered_counts['deletions']
 
-            # Count unique reviewers
+            # Count unique reviewers and check for active changes requested
             unique_reviewers = set()
             pr_author = pr['user']['login']
 
+            # Track all non-dismissed reviews
+            valid_reviews = []
             for review in reviews:
                 reviewer = review['user']['login']
+                review_state = review.get('state', '')
+                submitted_at = review.get('submitted_at')
+
+                # Skip dismissed reviews and reviews without timestamps
+                if review_state == 'DISMISSED' or not submitted_at:
+                    continue
+
                 if reviewer != pr_author and reviewer not in self.excluded_users:
                     unique_reviewers.add(reviewer)
+                    valid_reviews.append(review)
+
+            # Group reviews by reviewer
+            reviews_by_reviewer = defaultdict(list)
+            for review in valid_reviews:
+                reviewer = review['user']['login']
+                reviews_by_reviewer[reviewer].append(review)
+
+            # Check if any reviewer's latest review is CHANGES_REQUESTED
+            # A reviewer's change request is cleared if they submit ANY new review
+            # (APPROVED, COMMENTED, or even another CHANGES_REQUESTED counts as their latest state)
+            changes_requested = False
+
+            for reviewer, reviewer_reviews in reviews_by_reviewer.items():
+                # Sort by submitted_at to get the most recent
+                sorted_reviews = sorted(
+                    reviewer_reviews,
+                    key=lambda r: r.get('submitted_at', ''),
+                    reverse=True
+                )
+                if sorted_reviews:
+                    latest_review = sorted_reviews[0]
+                    review_state = latest_review.get('state')
+
+                    # Only count as active change request if their LATEST review is CHANGES_REQUESTED
+                    if review_state == 'CHANGES_REQUESTED':
+                        changes_requested = True
+                        break
 
             review_count = len(unique_reviewers)
 
@@ -719,7 +757,8 @@ class GitHubReviewAnalyzer:
                 'created_at': pr['created_at'],
                 'updated_at': pr['updated_at'],
                 'review_count': review_count,
-                'requested_my_review': requested_my_review
+                'requested_my_review': requested_my_review,
+                'changes_requested': changes_requested
             }
 
         except Exception as e:
@@ -807,10 +846,47 @@ class GitHubReviewAnalyzer:
                 unique_reviewers = set()
                 pr_author = pr['user']['login']
 
+                # Track all non-dismissed reviews
+                valid_reviews = []
                 for review in reviews:
                     reviewer = review['user']['login']
+                    review_state = review.get('state', '')
+                    submitted_at = review.get('submitted_at')
+
+                    # Skip dismissed reviews and reviews without timestamps
+                    if review_state == 'DISMISSED' or not submitted_at:
+                        continue
+
                     if reviewer != pr_author and reviewer not in self.excluded_users:
                         unique_reviewers.add(reviewer)
+                        valid_reviews.append(review)
+
+                # Group reviews by reviewer
+                reviews_by_reviewer = defaultdict(list)
+                for review in valid_reviews:
+                    reviewer = review['user']['login']
+                    reviews_by_reviewer[reviewer].append(review)
+
+                # Check if any reviewer's latest review is CHANGES_REQUESTED
+                # A reviewer's change request is cleared if they submit ANY new review
+                # (APPROVED, COMMENTED, or even another CHANGES_REQUESTED counts as their latest state)
+                changes_requested = False
+
+                for reviewer, reviewer_reviews in reviews_by_reviewer.items():
+                    # Sort by submitted_at to get the most recent
+                    sorted_reviews = sorted(
+                        reviewer_reviews,
+                        key=lambda r: r.get('submitted_at', ''),
+                        reverse=True
+                    )
+                    if sorted_reviews:
+                        latest_review = sorted_reviews[0]
+                        review_state = latest_review.get('state')
+
+                        # Only count as active change request if their LATEST review is CHANGES_REQUESTED
+                        if review_state == 'CHANGES_REQUESTED':
+                            changes_requested = True
+                            break
 
                 review_count = len(unique_reviewers)
 
@@ -827,7 +903,8 @@ class GitHubReviewAnalyzer:
             'created_at': pr['created_at'],
             'updated_at': pr['updated_at'],
             'review_count': review_count,
-            'requested_my_review': requested_my_review
+            'requested_my_review': requested_my_review,
+            'changes_requested': changes_requested
         }
 
     def save_cache(self):
