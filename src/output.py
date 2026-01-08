@@ -791,6 +791,11 @@ class OutputFormatter:
             color: white;
         }}
 
+        .badge-ready-for-review {{
+            background: #4caf50;
+            color: white;
+        }}
+
         .no-data {{
             text-align: center;
             padding: 40px;
@@ -1294,6 +1299,8 @@ class OutputFormatter:
                 info_parts.append(f'<span class="badge badge-changes-requested">CHANGES REQUESTED</span>')
 
             # Label badges
+            if 'ready for review' in labels:
+                info_parts.append(f'<span class="badge badge-ready-for-review">Ready for Review</span>')
             if 'ready to merge' in labels:
                 info_parts.append(f'<span class="badge badge-ready-to-merge">Ready to Merge</span>')
             if 'developer approved' in labels:
@@ -1554,6 +1561,8 @@ class OutputFormatter:
                     html += f'<span class="badge badge-re-review">RE-REVIEW ({my_previous_review_count}x reviewed)</span>'
 
                 # Label badges
+                if 'ready for review' in labels:
+                    html += '<span class="badge badge-ready-for-review">Ready for Review</span>'
                 if 'ready to merge' in labels:
                     html += '<span class="badge badge-ready-to-merge">Ready to Merge</span>'
                 if 'developer approved' in labels:
@@ -1682,6 +1691,8 @@ class OutputFormatter:
                         info_parts.append(f'<span class="badge badge-changes-requested">CHANGES REQUESTED</span>')
 
                     # Label badges
+                    if 'ready for review' in labels:
+                        info_parts.append(f'<span class="badge badge-ready-for-review">Ready for Review</span>')
                     if 'ready to merge' in labels:
                         info_parts.append(f'<span class="badge badge-ready-to-merge">Ready to Merge</span>')
                     if 'developer approved' in labels:
