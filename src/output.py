@@ -1215,6 +1215,13 @@ class OutputFormatter:
             html += f'<div class="setting-value">{self.config["required_pr_label"]}</div>\n'
             html += '</div>\n'
 
+        # Required project state
+        if 'required_project_state' in self.config and self.config['required_project_state']:
+            html += '<div class="setting-item">\n'
+            html += '<div class="setting-label">Required Project State</div>\n'
+            html += f'<div class="setting-value">{self.config["required_project_state"]}</div>\n'
+            html += '</div>\n'
+
         # Sort by
         html += '<div class="setting-item">\n'
         html += '<div class="setting-label">Default Sort</div>\n'

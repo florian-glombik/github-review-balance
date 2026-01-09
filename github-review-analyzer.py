@@ -104,6 +104,12 @@ def main():
         required_pr_label = required_pr_label.strip()
         logging.info(f"Filtering PRs by label: '{required_pr_label}'")
 
+    # Get required project state from environment
+    required_project_state = os.environ.get('REQUIRED_PROJECT_STATE')
+    if required_project_state:
+        required_project_state = required_project_state.strip()
+        logging.info(f"Filtering PRs by project state: '{required_project_state}'")
+
     # Get sort column from environment
     sort_by = os.environ.get('SORT_BY', 'total_prs').strip().lower()
     valid_sort_options = ['total_prs', 'balance', 'user', 'they_reviewed', 'i_reviewed', 'their_prs', 'my_prs']
@@ -159,6 +165,7 @@ def main():
         use_cache=use_cache,
         excluded_users=excluded_users,
         required_pr_label=required_pr_label,
+        required_project_state=required_project_state,
         sort_by=sort_by,
         exclude_generated_files=exclude_generated_files,
         excluded_file_patterns=excluded_file_patterns,
@@ -190,6 +197,7 @@ def main():
         'months': months,
         'excluded_users': excluded_users,
         'required_pr_label': required_pr_label,
+        'required_project_state': required_project_state,
         'exclude_generated_files': exclude_generated_files,
         'excluded_file_patterns': excluded_file_patterns
     }

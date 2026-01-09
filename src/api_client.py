@@ -107,3 +107,82 @@ class GitHubAPIClient:
             Response object
         """
         return self.session.get(url)
+
+    def post_graphql(self, query: str, variables: Dict = None) -> Dict:
+        """Make a GraphQL query to the GitHub API.
+
+        Args:
+            query: GraphQL query string
+            variables: Optional query variables
+
+        Returns:
+            JSON response data
+
+        Raises:
+            Exception: If the GraphQL query fails
+        """
+        url = "https://api.github.com/graphql"
+        payload = {"query": query}
+        if variables:
+            payload["variables"] = variables
+
+        try:
+            response = self.session.post(url, json=payload)
+
+            if response.status_code == 403:
+                logging.error(f"Rate limit exceeded. Response: {response.json()}")
+                sys.exit(1)
+
+            response.raise_for_status()
+            result = response.json()
+
+            # Check for GraphQL errors
+            if "errors" in result:
+                logging.error(f"GraphQL errors: {result['errors']}")
+                raise Exception(f"GraphQL query failed: {result['errors']}")
+
+            return result.get("data", {})
+
+        except Exception as e:
+            logging.error(f"GraphQL query failed: {e}")
+            raise
+
+    @staticmethod
+    def build_pr_project_states_query(repo_owner: str, repo_name: str, pr_numbers: List[int]) -> str:
+        """Build a GraphQL query to fetch project states for multiple PRs.
+
+        Args:
+            repo_owner: Repository owner
+            repo_name: Repository name
+            pr_numbers: List of PR numbers to query
+
+        Returns:
+            GraphQL query string
+        """
+        # Build individual PR queries as aliases
+        pr_queries = []
+        for pr_num in pr_numbers:
+            # Use pr_{number} as alias to identify results
+            pr_queries.append(f"""
+        pr_{pr_num}: pullRequest(number: {pr_num}) {{
+          number
+          projectItems(first: 10) {{
+            nodes {{
+              fieldValueByName(name: "Status") {{
+                ... on ProjectV2ItemFieldSingleSelectValue {{
+                  name
+                }}
+              }}
+            }}
+          }}
+        }}""")
+
+        query = f"""
+    query {{
+      repository(owner: "{repo_owner}", name: "{repo_name}") {{
+        {chr(10).join(pr_queries)}
+      }}
+    }}
+    """
+
+        return query

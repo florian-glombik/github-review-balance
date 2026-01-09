@@ -24,6 +24,7 @@ class GitHubReviewAnalyzer:
         use_cache: bool = True,
         excluded_users: Set[str] = None,
         required_pr_label: str = None,
+        required_project_state: str = None,
         sort_by: str = 'total_prs',
         exclude_generated_files: bool = False,
         excluded_file_patterns: List[str] = None,
@@ -38,6 +39,7 @@ class GitHubReviewAnalyzer:
             use_cache: Whether to use caching
             excluded_users: Set of usernames to exclude from analysis
             required_pr_label: Only analyze PRs with this label
+            required_project_state: Only analyze PRs with this project state
             sort_by: Column to sort results by
             exclude_generated_files: Whether to exclude generated files from line counts
             excluded_file_patterns: Custom file patterns to exclude
@@ -48,6 +50,7 @@ class GitHubReviewAnalyzer:
         self.cache_manager = CacheManager(cache_file, use_cache)
         self.excluded_users = excluded_users or set()
         self.required_pr_label = required_pr_label
+        self.required_project_state = required_project_state
         self.sort_by = sort_by
         self.exclude_generated_files = exclude_generated_files
         self.file_filter = FileFilter(excluded_file_patterns)
@@ -248,8 +251,15 @@ class GitHubReviewAnalyzer:
             total_fetched += len(prs)
             print(f" fetched {len(prs)} PRs ({page_count[0]} pages)")
 
+        # Fetch project states for filtering (if needed)
+        project_states = {}
+        if self.required_project_state:
+            print("Fetching project states for filtering...")
+            project_states = self._batch_fetch_project_states(repo, all_prs)
+            print(f"  Fetched project states for {len(project_states)} PRs")
+
         # Filter PRs
-        recent_prs = self._filter_prs(all_prs, since_date)
+        recent_prs = self._filter_prs(all_prs, since_date, project_states)
 
         filter_msg = f"Found {len(recent_prs)} PRs in the last {months} months (filtered from {total_fetched} fetched)"
         print(filter_msg)
@@ -264,16 +274,20 @@ class GitHubReviewAnalyzer:
         print(f"Completed analysis of {repo}")
         logging.info(f"Completed analysis of repository: {repo}")
 
-    def _filter_prs(self, all_prs: List[Dict], since_date: datetime) -> List[Dict]:
-        """Filter PRs by date, draft status, and labels.
+    def _filter_prs(self, all_prs: List[Dict], since_date: datetime, project_states: Dict[int, List[str]] = None) -> List[Dict]:
+        """Filter PRs by date, draft status, labels, and project states.
 
         Args:
             all_prs: List of all PRs
             since_date: Only include PRs merged after this date
+            project_states: Dictionary mapping PR number to list of project state names
 
         Returns:
             Filtered list of PRs
         """
+        if project_states is None:
+            project_states = {}
+
         # Deduplicate PRs by number
         seen_pr_numbers = set()
         deduplicated_prs = []
@@ -299,11 +313,26 @@ class GitHubReviewAnalyzer:
                 logging.debug(f"Skipping draft PR #{pr['number']}")
                 continue
 
-            # Check for required label
-            if self.required_pr_label:
+            # Check for required label or project state (OR logic)
+            if self.required_pr_label or self.required_project_state:
                 pr_labels = [label['name'] for label in pr.get('labels', [])]
-                if self.required_pr_label not in pr_labels:
-                    logging.debug(f"Skipping PR #{pr['number']} - missing required label '{self.required_pr_label}'")
+
+                # Check label match
+                has_required_label = self.required_pr_label and self.required_pr_label in pr_labels
+
+                # Check project state match
+                has_required_state = False
+                if self.required_project_state and pr['number'] in project_states:
+                    has_required_state = self.required_project_state in project_states[pr['number']]
+
+                # Skip only if PR has NEITHER required label NOR required state
+                if not (has_required_label or has_required_state):
+                    reason = []
+                    if self.required_pr_label:
+                        reason.append(f"missing label '{self.required_pr_label}'")
+                    if self.required_project_state:
+                        reason.append(f"missing state '{self.required_project_state}'")
+                    logging.debug(f"Skipping PR #{pr['number']} - {' and '.join(reason)}")
                     continue
 
             recent_prs.append(pr)
@@ -350,6 +379,66 @@ class GitHubReviewAnalyzer:
                     prefetched += 1
 
         print(f"Pre-fetching complete. Proceeding with PR analysis...")
+
+    def _batch_fetch_project_states(self, repo: str, prs: List[Dict]) -> Dict[int, List[str]]:
+        """Batch-fetch project states for multiple PRs using GraphQL.
+
+        Args:
+            repo: Repository name (format: owner/repo)
+            prs: List of PRs to fetch project states for
+
+        Returns:
+            Dictionary mapping PR number to list of project state names
+            Returns empty dict if GraphQL query fails
+        """
+        if not self.required_project_state:
+            return {}
+
+        repo_owner, repo_name = repo.split('/')
+        pr_numbers = [pr['number'] for pr in prs]
+
+        # Split into batches of 50 to avoid query complexity limits
+        batch_size = 50
+        all_results = {}
+
+        for i in range(0, len(pr_numbers), batch_size):
+            batch = pr_numbers[i:i+batch_size]
+
+            try:
+                # Build and execute GraphQL query
+                query = self.api_client.build_pr_project_states_query(repo_owner, repo_name, batch)
+                result = self.api_client.post_graphql(query)
+
+                # Parse results
+                repo_data = result.get('repository', {})
+                for pr_num in batch:
+                    pr_key = f'pr_{pr_num}'
+                    pr_data = repo_data.get(pr_key)
+
+                    if not pr_data:
+                        all_results[pr_num] = []
+                        continue
+
+                    # Extract all status values from all projects this PR is in
+                    states = []
+                    project_items = pr_data.get('projectItems', {}).get('nodes', [])
+                    for item in project_items:
+                        status_field = item.get('fieldValueByName')
+                        if status_field and status_field.get('name'):
+                            states.append(status_field['name'])
+
+                    all_results[pr_num] = states
+                    logging.debug(f"PR #{pr_num} project states: {states}")
+
+            except Exception as e:
+                logging.warning(f"Failed to fetch project states for batch: {e}")
+                logging.warning("Continuing with label-only filtering")
+                # Return partial results for PRs not in this failed batch
+                for pr_num in batch:
+                    if pr_num not in all_results:
+                        all_results[pr_num] = []
+
+        return all_results
 
     def _process_prs_parallel(self, repo: str, prs: List[Dict]):
         """Process PRs in parallel.
@@ -584,6 +673,11 @@ class GitHubReviewAnalyzer:
                     'direction': 'desc'
                 }, use_cache=False)
 
+                # Batch fetch project states for all open PRs (if needed)
+                project_states = {}
+                if self.required_project_state and open_prs:
+                    project_states = self._batch_fetch_project_states(repo, open_prs)
+
                 # Filter PRs first
                 candidate_prs = []
                 for pr in open_prs:
@@ -597,10 +691,16 @@ class GitHubReviewAnalyzer:
                     if pr.get('draft', False):
                         continue
 
-                    # Check for required label
-                    if self.required_pr_label:
+                    # Check for required label or project state (OR logic)
+                    if self.required_pr_label or self.required_project_state:
                         pr_labels = [label['name'] for label in pr.get('labels', [])]
-                        if self.required_pr_label not in pr_labels:
+
+                        has_required_label = self.required_pr_label and self.required_pr_label in pr_labels
+                        has_required_state = False
+                        if self.required_project_state and pr['number'] in project_states:
+                            has_required_state = self.required_project_state in project_states[pr['number']]
+
+                        if not (has_required_label or has_required_state):
                             continue
 
                     candidate_prs.append(pr)
@@ -983,6 +1083,11 @@ class GitHubReviewAnalyzer:
                     'direction': 'desc'
                 }, use_cache=False)
 
+                # Batch fetch project states (if needed)
+                project_states = {}
+                if self.required_project_state and open_prs:
+                    project_states = self._batch_fetch_project_states(repo, open_prs)
+
                 for pr in open_prs:
                     pr_author = pr['user']['login']
 
@@ -994,10 +1099,16 @@ class GitHubReviewAnalyzer:
                     if pr.get('draft', False):
                         continue
 
-                    # Check for required label (if specified)
-                    if self.required_pr_label:
+                    # Check for required label or project state (if specified)
+                    if self.required_pr_label or self.required_project_state:
                         pr_labels = [label['name'] for label in pr.get('labels', [])]
-                        if self.required_pr_label not in pr_labels:
+
+                        has_required_label = self.required_pr_label and self.required_pr_label in pr_labels
+                        has_required_state = False
+                        if self.required_project_state and pr['number'] in project_states:
+                            has_required_state = self.required_project_state in project_states[pr['number']]
+
+                        if not (has_required_label or has_required_state):
                             continue
 
                     # Get PR details
