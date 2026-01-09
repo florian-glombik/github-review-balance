@@ -1222,6 +1222,13 @@ class OutputFormatter:
             html += f'<div class="setting-value">{self.config["required_project_state"]}</div>\n'
             html += '</div>\n'
 
+        # Required project number
+        if 'required_project_number' in self.config and self.config['required_project_number']:
+            html += '<div class="setting-item">\n'
+            html += '<div class="setting-label">Required Project Number</div>\n'
+            html += f'<div class="setting-value">#{self.config["required_project_number"]}</div>\n'
+            html += '</div>\n'
+
         # Sort by
         html += '<div class="setting-item">\n'
         html += '<div class="setting-label">Default Sort</div>\n'

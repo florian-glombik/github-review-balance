@@ -126,6 +126,9 @@ class GitHubAPIClient:
         if variables:
             payload["variables"] = variables
 
+        # Log the query for debugging (first 500 chars)
+        logging.debug(f"GraphQL query: {query[:500]}...")
+
         try:
             response = self.session.post(url, json=payload)
 
@@ -138,10 +141,20 @@ class GitHubAPIClient:
 
             # Check for GraphQL errors
             if "errors" in result:
-                logging.error(f"GraphQL errors: {result['errors']}")
-                raise Exception(f"GraphQL query failed: {result['errors']}")
+                error_messages = []
+                for error in result.get('errors', []):
+                    msg = error.get('message', str(error))
+                    error_messages.append(msg)
+                logging.error(f"GraphQL errors: {'; '.join(error_messages)}")
+                raise Exception(f"GraphQL query failed: {'; '.join(error_messages)}")
 
-            return result.get("data", {})
+            # Handle null data (can happen with permissions issues or malformed queries)
+            data = result.get("data")
+            if data is None:
+                logging.error(f"GraphQL query returned null data. Response: {result}")
+                return {}
+
+            return data
 
         except Exception as e:
             logging.error(f"GraphQL query failed: {e}")
@@ -163,11 +176,15 @@ class GitHubAPIClient:
         pr_queries = []
         for pr_num in pr_numbers:
             # Use pr_{number} as alias to identify results
+            # Include project info so we can filter by project number
             pr_queries.append(f"""
         pr_{pr_num}: pullRequest(number: {pr_num}) {{
           number
           projectItems(first: 10) {{
             nodes {{
+              project {{
+                number
+              }}
               fieldValueByName(name: "Status") {{
                 ... on ProjectV2ItemFieldSingleSelectValue {{
                   name

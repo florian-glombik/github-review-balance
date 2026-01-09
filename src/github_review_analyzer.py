@@ -25,6 +25,7 @@ class GitHubReviewAnalyzer:
         excluded_users: Set[str] = None,
         required_pr_label: str = None,
         required_project_state: str = None,
+        required_project_number: int = None,
         sort_by: str = 'total_prs',
         exclude_generated_files: bool = False,
         excluded_file_patterns: List[str] = None,
@@ -40,6 +41,7 @@ class GitHubReviewAnalyzer:
             excluded_users: Set of usernames to exclude from analysis
             required_pr_label: Only analyze PRs with this label
             required_project_state: Only analyze PRs with this project state
+            required_project_number: Only check project state from this specific project number
             sort_by: Column to sort results by
             exclude_generated_files: Whether to exclude generated files from line counts
             excluded_file_patterns: Custom file patterns to exclude
@@ -51,6 +53,7 @@ class GitHubReviewAnalyzer:
         self.excluded_users = excluded_users or set()
         self.required_pr_label = required_pr_label
         self.required_project_state = required_project_state
+        self.required_project_number = required_project_number
         self.sort_by = sort_by
         self.exclude_generated_files = exclude_generated_files
         self.file_filter = FileFilter(excluded_file_patterns)
@@ -407,7 +410,15 @@ class GitHubReviewAnalyzer:
             try:
                 # Build and execute GraphQL query
                 query = self.api_client.build_pr_project_states_query(repo_owner, repo_name, batch)
+                logging.debug(f"Executing GraphQL query for batch {i//batch_size + 1}")
                 result = self.api_client.post_graphql(query)
+
+                # Check if we got valid data
+                if not result:
+                    logging.warning(f"GraphQL query returned empty result for batch starting at PR {batch[0]}")
+                    for pr_num in batch:
+                        all_results[pr_num] = []
+                    continue
 
                 # Parse results
                 repo_data = result.get('repository', {})
@@ -423,16 +434,36 @@ class GitHubReviewAnalyzer:
                     states = []
                     project_items = pr_data.get('projectItems', {}).get('nodes', [])
                     for item in project_items:
+                        # Filter by project number if specified
+                        if self.required_project_number:
+                            project_info = item.get('project', {})
+                            project_num = project_info.get('number')
+                            if project_num != self.required_project_number:
+                                logging.debug(f"PR #{pr_num} skipping project #{project_num} (looking for #{self.required_project_number})")
+                                continue
+
                         status_field = item.get('fieldValueByName')
                         if status_field and status_field.get('name'):
                             states.append(status_field['name'])
 
                     all_results[pr_num] = states
-                    logging.debug(f"PR #{pr_num} project states: {states}")
+                    if states:
+                        logging.debug(f"PR #{pr_num} project states: {states}")
+                    else:
+                        logging.debug(f"PR #{pr_num} has no matching project states")
 
             except Exception as e:
-                logging.warning(f"Failed to fetch project states for batch: {e}")
-                logging.warning("Continuing with label-only filtering")
+                error_msg = str(e)
+                logging.warning(f"Failed to fetch project states for batch: {error_msg}")
+
+                # Provide helpful guidance on first error
+                if i == 0:
+                    logging.warning("Project state fetching requires:")
+                    logging.warning("  1. GitHub token with 'project' read permission (repo scope + project scope)")
+                    logging.warning("  2. Repository using GitHub Projects v2 (not v1 or classic projects)")
+                    logging.warning("  3. PRs must be added to a project board with a 'Status' field")
+                    logging.warning("Continuing with label-only filtering...")
+
                 # Return partial results for PRs not in this failed batch
                 for pr_num in batch:
                     if pr_num not in all_results:

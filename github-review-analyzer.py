@@ -110,6 +110,16 @@ def main():
         required_project_state = required_project_state.strip()
         logging.info(f"Filtering PRs by project state: '{required_project_state}'")
 
+    # Get required project number from environment
+    required_project_number = None
+    project_number_env = os.environ.get('REQUIRED_PROJECT_NUMBER')
+    if project_number_env:
+        try:
+            required_project_number = int(project_number_env.strip())
+            logging.info(f"Filtering PRs by project number: {required_project_number}")
+        except ValueError:
+            logging.warning(f"Invalid REQUIRED_PROJECT_NUMBER value '{project_number_env}', ignoring")
+
     # Get sort column from environment
     sort_by = os.environ.get('SORT_BY', 'total_prs').strip().lower()
     valid_sort_options = ['total_prs', 'balance', 'user', 'they_reviewed', 'i_reviewed', 'their_prs', 'my_prs']
@@ -166,6 +176,7 @@ def main():
         excluded_users=excluded_users,
         required_pr_label=required_pr_label,
         required_project_state=required_project_state,
+        required_project_number=required_project_number,
         sort_by=sort_by,
         exclude_generated_files=exclude_generated_files,
         excluded_file_patterns=excluded_file_patterns,
@@ -198,6 +209,7 @@ def main():
         'excluded_users': excluded_users,
         'required_pr_label': required_pr_label,
         'required_project_state': required_project_state,
+        'required_project_number': required_project_number,
         'exclude_generated_files': exclude_generated_files,
         'excluded_file_patterns': excluded_file_patterns
     }
