@@ -1551,5 +1551,396 @@ class TestMyReviewDismissedDetection:
         assert result is None
 
 
+class TestProjectStateFiltering:
+    """Test cases for project state filtering functionality."""
+
+    @pytest.fixture
+    def analyzer_with_project_state(self):
+        """Create analyzer with project state filtering."""
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.json') as f:
+            cache_file = f.name
+
+        analyzer = GitHubReviewAnalyzer(
+            username='test_user',
+            token='test_token',
+            cache_file=cache_file,
+            use_cache=False,
+            required_project_state='Ready for Review'
+        )
+        yield analyzer
+
+        if os.path.exists(cache_file):
+            os.remove(cache_file)
+
+    def test_initialization_with_project_state(self, analyzer_with_project_state):
+        """Test analyzer initialization with required project state."""
+        assert analyzer_with_project_state.required_project_state == 'Ready for Review'
+
+    def test_initialization_with_project_number(self):
+        """Test analyzer initialization with required project number."""
+        analyzer = GitHubReviewAnalyzer(
+            username='test_user',
+            required_project_number=2,
+            use_cache=False
+        )
+        assert analyzer.required_project_number == 2
+
+    def test_batch_fetch_project_states_success(self, analyzer_with_project_state):
+        """Test successful batch fetching of project states."""
+        prs = [
+            {'number': 123},
+            {'number': 456}
+        ]
+
+        mock_response = {
+            'repository': {
+                'pr_123': {
+                    'number': 123,
+                    'projectItems': {
+                        'nodes': [
+                            {
+                                'project': {'number': 2},
+                                'fieldValueByName': {'name': 'Ready for Review'}
+                            }
+                        ]
+                    }
+                },
+                'pr_456': {
+                    'number': 456,
+                    'projectItems': {
+                        'nodes': [
+                            {
+                                'project': {'number': 2},
+                                'fieldValueByName': {'name': 'In Progress'}
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+
+        analyzer_with_project_state.api_client.post_graphql = Mock(return_value=mock_response)
+
+        result = analyzer_with_project_state._batch_fetch_project_states('owner/repo', prs)
+
+        assert 123 in result
+        assert 456 in result
+        assert 'Ready for Review' in result[123]
+        assert 'In Progress' in result[456]
+
+    def test_batch_fetch_project_states_empty_projects(self, analyzer_with_project_state):
+        """Test fetching project states when PR has no projects."""
+        prs = [{'number': 123}]
+
+        mock_response = {
+            'repository': {
+                'pr_123': {
+                    'number': 123,
+                    'projectItems': {'nodes': []}
+                }
+            }
+        }
+
+        analyzer_with_project_state.api_client.post_graphql = Mock(return_value=mock_response)
+
+        result = analyzer_with_project_state._batch_fetch_project_states('owner/repo', prs)
+
+        assert result[123] == []
+
+    def test_batch_fetch_project_states_multiple_projects(self, analyzer_with_project_state):
+        """Test PR in multiple projects returns all states."""
+        prs = [{'number': 123}]
+
+        mock_response = {
+            'repository': {
+                'pr_123': {
+                    'number': 123,
+                    'projectItems': {
+                        'nodes': [
+                            {
+                                'project': {'number': 1},
+                                'fieldValueByName': {'name': 'In Progress'}
+                            },
+                            {
+                                'project': {'number': 2},
+                                'fieldValueByName': {'name': 'Ready for Review'}
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+
+        analyzer_with_project_state.api_client.post_graphql = Mock(return_value=mock_response)
+
+        result = analyzer_with_project_state._batch_fetch_project_states('owner/repo', prs)
+
+        assert len(result[123]) == 2
+        assert 'In Progress' in result[123]
+        assert 'Ready for Review' in result[123]
+
+    def test_batch_fetch_project_states_filter_by_project_number(self):
+        """Test filtering project states by specific project number."""
+        analyzer = GitHubReviewAnalyzer(
+            username='test_user',
+            required_project_state='Ready for Review',
+            required_project_number=2,
+            use_cache=False
+        )
+
+        prs = [{'number': 123}]
+
+        mock_response = {
+            'repository': {
+                'pr_123': {
+                    'number': 123,
+                    'projectItems': {
+                        'nodes': [
+                            {
+                                'project': {'number': 1},
+                                'fieldValueByName': {'name': 'In Progress'}
+                            },
+                            {
+                                'project': {'number': 2},
+                                'fieldValueByName': {'name': 'Ready for Review'}
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+
+        analyzer.api_client.post_graphql = Mock(return_value=mock_response)
+
+        result = analyzer._batch_fetch_project_states('owner/repo', prs)
+
+        # Should only return state from project #2
+        assert len(result[123]) == 1
+        assert 'Ready for Review' in result[123]
+        assert 'In Progress' not in result[123]
+
+    def test_batch_fetch_project_states_graphql_failure(self, analyzer_with_project_state):
+        """Test graceful handling of GraphQL failure."""
+        prs = [{'number': 123}, {'number': 456}]
+
+        analyzer_with_project_state.api_client.post_graphql = Mock(side_effect=Exception('GraphQL error'))
+
+        result = analyzer_with_project_state._batch_fetch_project_states('owner/repo', prs)
+
+        # Should return empty lists for all PRs on failure
+        assert result[123] == []
+        assert result[456] == []
+
+    def test_filter_prs_with_label_only(self):
+        """Test filtering PRs with label only (no project state)."""
+        analyzer = GitHubReviewAnalyzer(
+            username='test_user',
+            required_pr_label='ready for review',
+            use_cache=False
+        )
+
+        prs = [
+            {
+                'number': 1,
+                'state': 'open',
+                'draft': False,
+                'labels': [{'name': 'ready for review'}]
+            },
+            {
+                'number': 2,
+                'state': 'open',
+                'draft': False,
+                'labels': [{'name': 'bug'}]
+            }
+        ]
+
+        from datetime import datetime, timedelta
+        since_date = datetime.now() - timedelta(days=90)
+
+        result = analyzer._filter_prs(prs, since_date, project_states={})
+
+        assert len(result) == 1
+        assert result[0]['number'] == 1
+
+    def test_filter_prs_with_project_state_only(self):
+        """Test filtering PRs with project state only (no label)."""
+        analyzer = GitHubReviewAnalyzer(
+            username='test_user',
+            required_project_state='Ready for Review',
+            use_cache=False
+        )
+
+        prs = [
+            {
+                'number': 1,
+                'state': 'open',
+                'draft': False,
+                'labels': []
+            },
+            {
+                'number': 2,
+                'state': 'open',
+                'draft': False,
+                'labels': []
+            }
+        ]
+
+        project_states = {
+            1: ['Ready for Review'],
+            2: ['In Progress']
+        }
+
+        from datetime import datetime, timedelta
+        since_date = datetime.now() - timedelta(days=90)
+
+        result = analyzer._filter_prs(prs, since_date, project_states)
+
+        assert len(result) == 1
+        assert result[0]['number'] == 1
+
+    def test_filter_prs_or_logic_label_or_state(self):
+        """Test OR logic: PR included if it has label OR project state."""
+        analyzer = GitHubReviewAnalyzer(
+            username='test_user',
+            required_pr_label='ready for review',
+            required_project_state='Ready for Review',
+            use_cache=False
+        )
+
+        prs = [
+            {  # Has label but not state
+                'number': 1,
+                'state': 'open',
+                'draft': False,
+                'labels': [{'name': 'ready for review'}]
+            },
+            {  # Has state but not label
+                'number': 2,
+                'state': 'open',
+                'draft': False,
+                'labels': []
+            },
+            {  # Has both
+                'number': 3,
+                'state': 'open',
+                'draft': False,
+                'labels': [{'name': 'ready for review'}]
+            },
+            {  # Has neither
+                'number': 4,
+                'state': 'open',
+                'draft': False,
+                'labels': []
+            }
+        ]
+
+        project_states = {
+            1: [],
+            2: ['Ready for Review'],
+            3: ['Ready for Review'],
+            4: []
+        }
+
+        from datetime import datetime, timedelta
+        since_date = datetime.now() - timedelta(days=90)
+
+        result = analyzer._filter_prs(prs, since_date, project_states)
+
+        # Should include PRs 1, 2, and 3 (exclude only PR 4)
+        result_numbers = [pr['number'] for pr in result]
+        assert 1 in result_numbers
+        assert 2 in result_numbers
+        assert 3 in result_numbers
+        assert 4 not in result_numbers
+
+    def test_filter_prs_multiple_project_states_any_match(self):
+        """Test that PR with multiple projects matches if ANY state matches."""
+        analyzer = GitHubReviewAnalyzer(
+            username='test_user',
+            required_project_state='Ready for Review',
+            use_cache=False
+        )
+
+        prs = [
+            {
+                'number': 1,
+                'state': 'open',
+                'draft': False,
+                'labels': []
+            }
+        ]
+
+        # PR is in two projects, one matches
+        project_states = {
+            1: ['In Progress', 'Ready for Review', 'Done']
+        }
+
+        from datetime import datetime, timedelta
+        since_date = datetime.now() - timedelta(days=90)
+
+        result = analyzer._filter_prs(prs, since_date, project_states)
+
+        assert len(result) == 1
+        assert result[0]['number'] == 1
+
+    def test_filter_prs_no_filtering_when_not_configured(self):
+        """Test that no filtering occurs when neither label nor state is configured."""
+        analyzer = GitHubReviewAnalyzer(
+            username='test_user',
+            use_cache=False
+        )
+
+        prs = [
+            {
+                'number': 1,
+                'state': 'open',
+                'draft': False,
+                'labels': []
+            },
+            {
+                'number': 2,
+                'state': 'open',
+                'draft': False,
+                'labels': [{'name': 'bug'}]
+            }
+        ]
+
+        from datetime import datetime, timedelta
+        since_date = datetime.now() - timedelta(days=90)
+
+        result = analyzer._filter_prs(prs, since_date, project_states={})
+
+        # All PRs should be included
+        assert len(result) == 2
+
+    def test_filter_prs_draft_excluded_regardless_of_filters(self):
+        """Test that draft PRs are excluded even with matching filters."""
+        analyzer = GitHubReviewAnalyzer(
+            username='test_user',
+            required_pr_label='ready for review',
+            required_project_state='Ready for Review',
+            use_cache=False
+        )
+
+        prs = [
+            {
+                'number': 1,
+                'state': 'open',
+                'draft': True,  # Draft PR
+                'labels': [{'name': 'ready for review'}]
+            }
+        ]
+
+        project_states = {1: ['Ready for Review']}
+
+        from datetime import datetime, timedelta
+        since_date = datetime.now() - timedelta(days=90)
+
+        result = analyzer._filter_prs(prs, since_date, project_states)
+
+        # Draft should be excluded even though it has both label and state
+        assert len(result) == 0
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

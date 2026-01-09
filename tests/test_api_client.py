@@ -562,5 +562,120 @@ class TestPrintSummary:
         assert 'OPEN PRs THAT NEED YOUR REVIEW' in captured.out
 
 
+class TestGraphQLAPI:
+    """Test cases for GraphQL API functionality."""
+
+    @pytest.fixture
+    def mock_analyzer(self):
+        """Create analyzer with mocked session."""
+        analyzer = GitHubReviewAnalyzer(username='test_user', token='test_token', use_cache=False)
+        analyzer.api_client.session = Mock()
+        return analyzer
+
+    def test_build_pr_project_states_query_single_pr(self, mock_analyzer):
+        """Test building GraphQL query for a single PR."""
+        from src.api_client import GitHubAPIClient
+
+        query = GitHubAPIClient.build_pr_project_states_query('owner', 'repo', [123])
+
+        assert 'pr_123: pullRequest(number: 123)' in query
+        assert 'projectItems(first: 10)' in query
+        assert 'fieldValueByName(name: "Status")' in query
+        assert 'project' in query
+        assert 'number' in query
+
+    def test_build_pr_project_states_query_multiple_prs(self, mock_analyzer):
+        """Test building GraphQL query for multiple PRs."""
+        from src.api_client import GitHubAPIClient
+
+        query = GitHubAPIClient.build_pr_project_states_query('owner', 'repo', [123, 456, 789])
+
+        assert 'pr_123: pullRequest(number: 123)' in query
+        assert 'pr_456: pullRequest(number: 456)' in query
+        assert 'pr_789: pullRequest(number: 789)' in query
+        assert 'repository(owner: "owner", name: "repo")' in query
+
+    def test_post_graphql_success(self, mock_analyzer):
+        """Test successful GraphQL query."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            'data': {
+                'repository': {
+                    'pr_123': {
+                        'number': 123,
+                        'projectItems': {
+                            'nodes': [
+                                {
+                                    'project': {'number': 2},
+                                    'fieldValueByName': {'name': 'Ready for Review'}
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+        mock_analyzer.api_client.session.post = Mock(return_value=mock_response)
+
+        result = mock_analyzer.api_client.post_graphql('query { test }')
+
+        assert 'repository' in result
+        assert result['repository']['pr_123']['number'] == 123
+
+    def test_post_graphql_with_errors(self, mock_analyzer):
+        """Test GraphQL query with errors."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            'errors': [
+                {'message': 'Field not found'},
+                {'message': 'Permission denied'}
+            ]
+        }
+        mock_analyzer.api_client.session.post = Mock(return_value=mock_response)
+
+        with pytest.raises(Exception) as exc_info:
+            mock_analyzer.api_client.post_graphql('query { test }')
+
+        assert 'Field not found' in str(exc_info.value)
+        assert 'Permission denied' in str(exc_info.value)
+
+    def test_post_graphql_null_data(self, mock_analyzer):
+        """Test GraphQL query returning null data."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {'data': None}
+        mock_analyzer.api_client.session.post = Mock(return_value=mock_response)
+
+        result = mock_analyzer.api_client.post_graphql('query { test }')
+
+        assert result == {}
+
+    def test_post_graphql_rate_limit(self, mock_analyzer):
+        """Test GraphQL query with rate limit."""
+        mock_response = Mock()
+        mock_response.status_code = 403
+        mock_response.json.return_value = {'message': 'rate limit exceeded'}
+        mock_analyzer.api_client.session.post = Mock(return_value=mock_response)
+
+        with pytest.raises(SystemExit):
+            mock_analyzer.api_client.post_graphql('query { test }')
+
+    def test_post_graphql_with_variables(self, mock_analyzer):
+        """Test GraphQL query with variables."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {'data': {'test': 'value'}}
+        mock_analyzer.api_client.session.post = Mock(return_value=mock_response)
+
+        variables = {'owner': 'test', 'repo': 'repo'}
+        result = mock_analyzer.api_client.post_graphql('query($owner: String!) { test }', variables)
+
+        mock_analyzer.api_client.session.post.assert_called_once()
+        call_args = mock_analyzer.api_client.session.post.call_args
+        assert call_args[1]['json']['variables'] == variables
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
