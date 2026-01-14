@@ -1941,6 +1941,97 @@ class TestProjectStateFiltering:
         # Draft should be excluded even though it has both label and state
         assert len(result) == 0
 
+    def test_analyze_repository_fetches_project_states_only_for_open_prs(self):
+        """Test that analyze_repository only fetches project states for open PRs, not closed ones."""
+        analyzer = GitHubReviewAnalyzer(
+            username='test_user',
+            required_project_state='Ready for Review',
+            use_cache=False
+        )
+
+        # Mock the paginated API to return both open and closed PRs
+        open_prs = [
+            {'number': 1, 'state': 'open', 'draft': False, 'labels': []},
+            {'number': 2, 'state': 'open', 'draft': False, 'labels': []},
+        ]
+        closed_prs = [
+            {'number': 3, 'state': 'closed', 'merged_at': '2025-01-01T00:00:00Z', 'draft': False, 'labels': []},
+            {'number': 4, 'state': 'closed', 'merged_at': '2025-01-01T00:00:00Z', 'draft': False, 'labels': []},
+            {'number': 5, 'state': 'closed', 'merged_at': '2025-01-01T00:00:00Z', 'draft': False, 'labels': []},
+        ]
+
+        def mock_get_paginated(url, params, should_continue=None):
+            if params.get('state') == 'open':
+                return open_prs
+            else:
+                return closed_prs
+
+        analyzer._get_paginated = Mock(side_effect=mock_get_paginated)
+
+        # Mock _batch_fetch_project_states to capture what PRs it receives
+        captured_prs = []
+        original_batch_fetch = analyzer._batch_fetch_project_states
+
+        def mock_batch_fetch(repo, prs):
+            captured_prs.extend(prs)
+            # Return project states only for open PRs
+            return {pr['number']: ['Ready for Review'] for pr in prs}
+
+        analyzer._batch_fetch_project_states = Mock(side_effect=mock_batch_fetch)
+
+        # Mock _process_prs_parallel to avoid further processing
+        analyzer._process_prs_parallel = Mock()
+
+        # Run analyze_repository
+        analyzer.analyze_repository('owner/repo', months=3)
+
+        # Verify _batch_fetch_project_states was called
+        assert analyzer._batch_fetch_project_states.called
+
+        # Verify only open PRs were passed to _batch_fetch_project_states
+        assert len(captured_prs) == 2
+        captured_pr_numbers = [pr['number'] for pr in captured_prs]
+        assert 1 in captured_pr_numbers
+        assert 2 in captured_pr_numbers
+        # Closed PRs should NOT be in the captured list
+        assert 3 not in captured_pr_numbers
+        assert 4 not in captured_pr_numbers
+        assert 5 not in captured_pr_numbers
+
+    def test_filter_prs_project_state_only_applies_to_open_prs(self):
+        """Test that project state filtering only applies to open PRs, not closed ones."""
+        analyzer = GitHubReviewAnalyzer(
+            username='test_user',
+            required_project_state='Ready for Review',
+            use_cache=False
+        )
+
+        from datetime import datetime, timedelta
+        since_date = datetime.now() - timedelta(days=90)
+        # Use a recent date for merged_at (within the since_date filter)
+        recent_merged_at = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+        prs = [
+            # Open PR with required state - should be included
+            {'number': 1, 'state': 'open', 'draft': False, 'labels': []},
+            # Open PR without required state - should be excluded
+            {'number': 2, 'state': 'open', 'draft': False, 'labels': []},
+            # Closed PR - should be included (project state doesn't apply to closed)
+            {'number': 3, 'state': 'closed', 'merged_at': recent_merged_at, 'draft': False, 'labels': []},
+        ]
+
+        # Only PR #1 has the required project state
+        project_states = {1: ['Ready for Review'], 2: ['In Progress']}
+
+        result = analyzer._filter_prs(prs, since_date, project_states)
+
+        # PR #1 (open with state) and PR #3 (closed, state filter doesn't apply) should be included
+        # PR #2 (open without state) should be excluded
+        result_numbers = [pr['number'] for pr in result]
+        assert 1 in result_numbers  # Open with required state
+        assert 2 not in result_numbers  # Open without required state
+        assert 3 in result_numbers  # Closed - project state doesn't apply
+
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
