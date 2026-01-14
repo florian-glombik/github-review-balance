@@ -254,12 +254,15 @@ class GitHubReviewAnalyzer:
             total_fetched += len(prs)
             print(f" fetched {len(prs)} PRs ({page_count[0]} pages)")
 
-        # Fetch project states for filtering (if needed)
+        # Fetch project states for filtering (if needed) - only for open PRs
+        # Closed/merged PRs don't need project state filtering since they're already done
         project_states = {}
         if self.required_project_state:
-            print("Fetching project states for filtering...")
-            project_states = self._batch_fetch_project_states(repo, all_prs)
-            print(f"  Fetched project states for {len(project_states)} PRs")
+            open_prs = [pr for pr in all_prs if pr.get('state') == 'open']
+            if open_prs:
+                print(f"Fetching project states for {len(open_prs)} open PRs...")
+                project_states = self._batch_fetch_project_states(repo, open_prs)
+                print(f"  Fetched project states for {len(project_states)} PRs")
 
         # Filter PRs
         recent_prs = self._filter_prs(all_prs, since_date, project_states)
@@ -317,26 +320,35 @@ class GitHubReviewAnalyzer:
                 continue
 
             # Check for required label or project state (OR logic)
+            # Note: Project state filter only applies to open PRs (closed PRs are already done)
             if self.required_pr_label or self.required_project_state:
                 pr_labels = [label['name'] for label in pr.get('labels', [])]
+                is_open = pr['state'] == 'open'
 
                 # Check label match
                 has_required_label = self.required_pr_label and self.required_pr_label in pr_labels
 
-                # Check project state match
+                # Check project state match (only for open PRs)
                 has_required_state = False
-                if self.required_project_state and pr['number'] in project_states:
+                if is_open and self.required_project_state and pr['number'] in project_states:
                     has_required_state = self.required_project_state in project_states[pr['number']]
 
-                # Skip only if PR has NEITHER required label NOR required state
-                if not (has_required_label or has_required_state):
-                    reason = []
-                    if self.required_pr_label:
-                        reason.append(f"missing label '{self.required_pr_label}'")
-                    if self.required_project_state:
-                        reason.append(f"missing state '{self.required_project_state}'")
-                    logging.debug(f"Skipping PR #{pr['number']} - {' and '.join(reason)}")
-                    continue
+                # For open PRs: skip if has NEITHER required label NOR required state
+                # For closed PRs: skip only if label filter is configured and missing
+                if is_open:
+                    if not (has_required_label or has_required_state):
+                        reason = []
+                        if self.required_pr_label:
+                            reason.append(f"missing label '{self.required_pr_label}'")
+                        if self.required_project_state:
+                            reason.append(f"missing state '{self.required_project_state}'")
+                        logging.debug(f"Skipping PR #{pr['number']} - {' and '.join(reason)}")
+                        continue
+                else:
+                    # Closed PRs: only filter by label if configured
+                    if self.required_pr_label and not has_required_label:
+                        logging.debug(f"Skipping PR #{pr['number']} - missing label '{self.required_pr_label}'")
+                        continue
 
             recent_prs.append(pr)
 
