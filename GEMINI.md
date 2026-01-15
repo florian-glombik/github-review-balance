@@ -1,36 +1,60 @@
 # GEMINI.md
 
-This file is intended to serve as a guide and configuration for using the Gemini CLI with this repository.
+This file provides guidance for using the Gemini CLI with the **GitHub PR Review Analyzer** repository.
 
-## Purpose
+## Project Overview
 
-The Gemini CLI is an interactive assistant that can help with various software engineering tasks, such as:
-- Understanding the codebase
-- Fixing bugs
-- Adding features
-- Refactoring code
-- Generating documentation
-- Running tests
+This project is a Python script that analyzes GitHub pull request review activity. It generates a console summary and a detailed, interactive HTML report.
 
-## Getting Started with Gemini
+## Key Files
 
-To effectively use Gemini with this repository, consider the following:
+-   **Main Script:** `github-review-analyzer.py`
+-   **Main Source:** `src/github_review_analyzer.py`
+-   **Core Logic:** Files in `src/`
+-   **Dependencies:** `requirements-review-analyzer.txt`
+-   **Dev Dependencies:** `requirements-dev.txt`
+-   **Tests:** Files in `tests/`
 
-1.  **Understand the Project Structure:** Gemini can inspect the file system. Ensure it has a good understanding of where source code, tests, and configuration files are located.
-2.  **Provide Context:** When asking Gemini to perform a task, provide as much context as possible. Refer to specific files, functions, or features.
-3.  **Utilize Gemini's Tools:** Gemini has tools for reading/writing files, running shell commands, and searching content. Guide it on which tools to use for specific tasks.
-4.  **Testing:** Encourage Gemini to write and run tests to verify its changes.
+## How to Run the Application
 
-## Specific Instructions for this Repository
+The main script is `github-review-analyzer.py`.
 
-*(Add any specific instructions or configurations here that would be useful for Gemini when working with this project. For example:)*
+1.  **Install Dependencies:**
+    ```bash
+    pip install -r requirements-review-analyzer.txt
+    ```
 
-- **Primary Language:** Python
-- **Test Command:** `pytest` (or `python -m pytest`)
-- **Main Entry Point:** `github-review-analyzer.py` or `src/github_review_analyzer.py`
-- **Dependency File:** `requirements-review-analyzer.txt`
-- **Linting/Formatting:** `black`, `flake8` (if applicable, specify commands)
+2.  **Set up Environment:**
+    -   Copy the example `.env` file:
+        ```bash
+        cp .env.example .env
+        ```
+    -   Edit the `.env` file to add your `GITHUB_USERNAME`, `GITHUB_TOKEN`, and other settings.
 
----
+3.  **Execute the Script:**
+    ```bash
+    python3 github-review-analyzer.py
+    ```
+    The script will generate an HTML report in the `reports/` directory.
 
-*(This section can be updated by a human user or by Gemini itself if it learns specific preferences or configurations for this project.)*
+## How to Run Tests
+
+This project uses `pytest` for testing.
+
+1.  **Install Development Dependencies:**
+    ```bash
+    pip install -r requirements-dev.txt
+    ```
+
+2.  **Run the Test Suite:**
+    ```bash
+    pytest tests/ -v
+    ```
+
+## Gemini's Role
+
+As the Gemini assistant, your goal is to help maintain and extend this application. When making changes:
+
+1.  **Adhere to Conventions:** Match the existing coding style and project structure.
+2.  **Verify Changes:** Always run the test suite after making modifications to ensure you haven't introduced any regressions.
+3.  **Update Tests:** If you add new features, add corresponding tests.
