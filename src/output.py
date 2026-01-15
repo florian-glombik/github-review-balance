@@ -1296,9 +1296,14 @@ class OutputFormatter:
             testing_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
             testing_message += "As always, I am happy to trade reviews :smile:"
 
+            ready_to_merge_message = f"Hey everyone, this PR is now ready to merge: *{slack_title}*\n"
+            ready_to_merge_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
+            ready_to_merge_message += "Thanks for the reviews! :tada:"
+
             # Escape only quotes and backslashes for HTML data attribute (preserve Slack formatting)
             escaped_code_message = code_review_message.replace('\\', '\\\\').replace('"', '&quot;')
             escaped_test_message = testing_message.replace('\\', '\\\\').replace('"', '&quot;')
+            escaped_ready_to_merge_message = ready_to_merge_message.replace('\\', '\\\\').replace('"', '&quot;')
 
             html += '<div style="margin: 20px 0; padding: 15px; background: white; border-radius: 8px; border: 2px solid #4caf50;">\n'
             html += f'<div style="font-weight: 600; font-size: 1.1em; margin-bottom: 10px;">[{repo_short}] #{pr_number}: {pr_title}</div>\n'
@@ -1339,6 +1344,9 @@ class OutputFormatter:
             html += '<div style="display: flex; gap: 10px;">\n'
             html += f'<button class="pr-copy-button" data-message="{escaped_code_message}" style="flex: 1; background: #667eea; color: white; border: none; padding: 10px 16px; border-radius: 4px; cursor: pointer; font-size: 0.9em; transition: background-color 0.2s ease;">Copy Code Review Message</button>\n'
             html += f'<button class="pr-copy-button" data-message="{escaped_test_message}" style="flex: 1; background: #764ba2; color: white; border: none; padding: 10px 16px; border-radius: 4px; cursor: pointer; font-size: 0.9em; transition: background-color 0.2s ease;">Copy Testing Message</button>\n'
+            
+            if 'ready to merge' in labels:
+                html += f'<button class="pr-copy-button" data-message="{escaped_ready_to_merge_message}" style="flex: 1; background: #28a745; color: white; border: none; padding: 10px 16px; border-radius: 4px; cursor: pointer; font-size: 0.9em; transition: background-color 0.2s ease;">Ready to Merge</button>\n'
             html += '</div>\n'
             html += '</div>\n'
 
