@@ -1417,7 +1417,17 @@ class OutputFormatter:
         html += '<th>They Reviewed</th><th>I Reviewed</th><th>Balance</th><th>Action</th>\n'
         html += '</tr></thead>\n<tbody>\n'
 
-        users_with_open_prs = set(open_prs_by_author.keys()) if open_prs_by_author else set()
+        # Filter PRs based on review count threshold to determine which users have visible open PRs
+        users_with_open_prs = set()
+        if open_prs_by_author:
+            for author, prs in open_prs_by_author.items():
+                for pr in prs:
+                    review_count = pr.get('review_count', 0)
+                    requested_my_review = pr.get('requested_my_review', False)
+                    if requested_my_review or self.max_review_count_threshold is None or review_count < self.max_review_count_threshold:
+                        users_with_open_prs.add(author)
+                        break  # Found at least one visible PR for this author
+
         for item in review_balance:
             html += self._generate_balance_row_html(item, users_with_open_prs)
 
@@ -1486,12 +1496,11 @@ class OutputFormatter:
         """Generate HTML for open PRs section."""
         html = '<h2>Open PRs That Need Your Review</h2>\n'
 
-        if not open_prs_by_author:
-            html += '<div class="no-data">No open PRs found that need your review.</div>\n'
-            return html
-
         # Calculate review balance for sorting and coloring
-        all_users = set(reviewed_by_me.keys()) | set(reviewed_by_others.keys())
+        computed_all_users = set(reviewed_by_me.keys()) | set(reviewed_by_others.keys())
+        # Use passed all_users if available, otherwise compute from review stats
+        if all_users is None:
+            all_users = computed_all_users
         review_balance = []
         for user in all_users:
             my_reviews = reviewed_by_me[user]
@@ -1536,86 +1545,85 @@ class OutputFormatter:
             if filtered_count > 0:
                 html += f' ({filtered_count} PR(s) filtered out due to review count threshold)'
             html += '</div>\n'
-            return html
+        else:
+            html += f'<p>You have <strong>{total_prs_to_review}</strong> open PR(s) to review'
+            if filtered_count > 0:
+                html += f' ({filtered_count} filtered out by threshold)'
+            html += '</p>\n'
 
-        html += f'<p>You have <strong>{total_prs_to_review}</strong> open PR(s) to review'
-        if filtered_count > 0:
-            html += f' ({filtered_count} filtered out by threshold)'
-        html += '</p>\n'
+            for author, prs in authors_with_prs:
+                balance_info = next((item for item in review_balance if item['user'] == author), None)
 
-        for author, prs in authors_with_prs:
-            balance_info = next((item for item in review_balance if item['user'] == author), None)
-
-            # Determine priority class based on balance
-            if balance_info:
-                balance = balance_info['balance']
-                if balance > 0:
-                    priority_class = "priority-high"
-                    priority_text = f"Priority: You owe them {balance:,} lines"
-                elif balance > -1000:
-                    priority_class = "priority-medium"
-                    priority_text = ""
+                # Determine priority class based on balance
+                if balance_info:
+                    balance = balance_info['balance']
+                    if balance > 0:
+                        priority_class = "priority-high"
+                        priority_text = f"Priority: You owe them {balance:,} lines"
+                    elif balance > -1000:
+                        priority_class = "priority-medium"
+                        priority_text = ""
+                    else:
+                        priority_class = "priority-low"
+                        priority_text = ""
                 else:
-                    priority_class = "priority-low"
+                    priority_class = ""
                     priority_text = ""
-            else:
-                priority_class = ""
-                priority_text = ""
 
-            html += f'<div class="author-section" id="user-{author}">\n'
-            html += f'<div class="author-name">'
-            html += f'From <a href="https://github.com/{author}" class="author-link" target="_blank">{author}</a>'
-            if priority_text:
-                html += f' <span style="color: #28a745;">({priority_text})</span>'
-            html += f' <a href="#" class="back-to-table" data-username="{author}">↑ overview</a>'
-            html += '</div>\n'
-            html += '<ul class="pr-list">\n'
-
-            for pr in prs:
-                repo_short = pr['repo'].split('/')[-1]
-                review_count = pr.get('review_count', 0)
-                requested_my_review = pr.get('requested_my_review', False)
-                changes_requested = pr.get('changes_requested', False)
-                labels = pr.get('labels', [])
-                my_review_dismissed = pr.get('my_review_dismissed', False)
-                my_previous_review_count = pr.get('my_previous_review_count', 0)
-
-                pr_class = priority_class
-                if requested_my_review:
-                    pr_class += " requested"
-
-                html += f'<li class="pr-item {pr_class}">\n'
-                html += f'<a href="{pr["url"]}" class="pr-item-link" target="_blank">\n'
-                html += f'<div class="pr-title">[{repo_short}] #{pr["number"]}: {pr["title"]}'
-
-                # Add badges
-                if changes_requested:
-                    html += '<span class="badge badge-changes-requested">CHANGES REQUESTED</span>'
-                if requested_my_review:
-                    html += '<span class="badge badge-requested">REVIEW REQUESTED</span>'
-                if my_review_dismissed:
-                    html += f'<span class="badge badge-re-review">RE-REVIEW ({my_previous_review_count}x reviewed)</span>'
-
-                # Label badges
-                if 'ready for review' in labels:
-                    html += '<span class="badge badge-ready-for-review">Ready for Review</span>'
-                if 'ready to merge' in labels:
-                    html += '<span class="badge badge-ready-to-merge">Ready to Merge</span>'
-                if 'developer approved' in labels:
-                    html += '<span class="badge badge-developer-approved">Developer Approved</span>'
-                if 'maintainer approved' in labels:
-                    html += '<span class="badge badge-maintainer-approved">Maintainer Approved</span>'
-
-                html += f'<span class="badge badge-reviews">{review_count} review(s)</span>'
+                html += f'<div class="author-section" id="user-{author}">\n'
+                html += f'<div class="author-name">'
+                html += f'From <a href="https://github.com/{author}" class="author-link" target="_blank">{author}</a>'
+                if priority_text:
+                    html += f' <span style="color: #28a745;">({priority_text})</span>'
+                html += f' <a href="#" class="back-to-table" data-username="{author}">↑ overview</a>'
                 html += '</div>\n'
-                html += f'<div class="pr-meta">'
-                html += f'{pr["url"]} '
-                html += f'(+{pr["additions"]:,} / -{pr["deletions"]:,} lines)'
-                html += '</div>\n'
-                html += '</a>\n'
-                html += '</li>\n'
+                html += '<ul class="pr-list">\n'
 
-            html += '</ul>\n'
+                for pr in prs:
+                    repo_short = pr['repo'].split('/')[-1]
+                    review_count = pr.get('review_count', 0)
+                    requested_my_review = pr.get('requested_my_review', False)
+                    changes_requested = pr.get('changes_requested', False)
+                    labels = pr.get('labels', [])
+                    my_review_dismissed = pr.get('my_review_dismissed', False)
+                    my_previous_review_count = pr.get('my_previous_review_count', 0)
+
+                    pr_class = priority_class
+                    if requested_my_review:
+                        pr_class += " requested"
+
+                    html += f'<li class="pr-item {pr_class}">\n'
+                    html += f'<a href="{pr["url"]}" class="pr-item-link" target="_blank">\n'
+                    html += f'<div class="pr-title">[{repo_short}] #{pr["number"]}: {pr["title"]}'
+
+                    # Add badges
+                    if changes_requested:
+                        html += '<span class="badge badge-changes-requested">CHANGES REQUESTED</span>'
+                    if requested_my_review:
+                        html += '<span class="badge badge-requested">REVIEW REQUESTED</span>'
+                    if my_review_dismissed:
+                        html += f'<span class="badge badge-re-review">RE-REVIEW ({my_previous_review_count}x reviewed)</span>'
+
+                    # Label badges
+                    if 'ready for review' in labels:
+                        html += '<span class="badge badge-ready-for-review">Ready for Review</span>'
+                    if 'ready to merge' in labels:
+                        html += '<span class="badge badge-ready-to-merge">Ready to Merge</span>'
+                    if 'developer approved' in labels:
+                        html += '<span class="badge badge-developer-approved">Developer Approved</span>'
+                    if 'maintainer approved' in labels:
+                        html += '<span class="badge badge-maintainer-approved">Maintainer Approved</span>'
+
+                    html += f'<span class="badge badge-reviews">{review_count} review(s)</span>'
+                    html += '</div>\n'
+                    html += f'<div class="pr-meta">'
+                    html += f'{pr["url"]} '
+                    html += f'(+{pr["additions"]:,} / -{pr["deletions"]:,} lines)'
+                    html += '</div>\n'
+                    html += '</a>\n'
+                    html += '</li>\n'
+
+                html += '</ul>\n'
 
             # Add collapsible details section showing review history with this user
             my_reviews = reviewed_by_me.get(author)
@@ -1768,8 +1776,8 @@ class OutputFormatter:
             if self.filter_non_pr_authors and pr_authors is not None:
                 filtered_users = {user for user in all_users if user in pr_authors}
 
-            # Get users without open PRs
-            users_with_open_prs = set(open_prs_by_author.keys()) if open_prs_by_author else set()
+            # Get users without open PRs (use filtered_prs_by_author to account for review count threshold)
+            users_with_open_prs = set(filtered_prs_by_author.keys())
             users_without_open_prs = filtered_users - users_with_open_prs
 
             if users_without_open_prs:
@@ -1857,6 +1865,66 @@ class OutputFormatter:
                         html += '<details>\n'
                         html += f'<summary class="user-prs-summary">My PRs for {user} to Review ({len(my_open_prs)})</summary>\n'
                         html += '<p style="font-size: 0.9em; color: #666; margin-bottom: 10px; margin-top: 10px;">Click either button to copy a personalized Slack-ready message requesting code review or testing</p>\n'
+                        html += '<p style="background: #fff3cd; border: 1px solid #ffc107; padding: 8px; border-radius: 4px; margin: 10px 0; font-size: 0.85em;"><strong>Warning:</strong> Press <kbd>CMD/CTRL + Shift + F</kbd> before sending the message in Slack to apply formatting!</p>\n'
+
+                        for pr in my_open_prs:
+                            repo_name = pr['repo']
+                            repo_short = repo_name.split('/')[-1]
+                            pr_title = pr['title']
+                            pr_url = pr['url']
+                            additions = pr['additions']
+                            deletions = pr['deletions']
+                            total_lines = additions + deletions
+                            review_count = pr.get('review_count', 0)
+                            requested_reviewers = pr.get('requested_reviewers', [])
+                            labels = pr.get('labels', [])
+                            has_change_requests = pr.get('has_change_requests', False)
+
+                            slack_title = pr_title.replace('`', '')
+                            code_review_message = f"Hey {user}, I need your help for *a code review* on: *{slack_title}*\n"
+                            code_review_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
+                            code_review_message += "As always, I am happy to trade reviews :smile:"
+
+                            testing_message = f"Hey {user}, I need your help for *a manual test* on: *{slack_title}*\n"
+                            testing_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
+                            testing_message += "As always, I am happy to trade reviews :smile:"
+
+                            escaped_code_message = code_review_message.replace('\\', '\\\\').replace('"', '&quot;')
+                            escaped_test_message = testing_message.replace('\\', '\\\\').replace('"', '&quot;')
+
+                            html += f'<div style="margin: 10px 0; padding: 15px; background: #f0f0f0; border-radius: 4px; border-left: 4px solid #667eea;">\n'
+                            html += f'<div style="font-weight: 600; margin-bottom: 10px;">[{repo_short}] #{pr["number"]}: {pr_title}</div>\n'
+                            html += f'<div style="font-size: 0.9em; color: #666; margin-bottom: 5px;">{pr_url}</div>\n'
+                            html += f'<div style="font-size: 0.9em; color: #666; margin-bottom: 5px;">(+{additions:,} / -{deletions:,} lines)</div>\n'
+
+                            info_parts = []
+                            if has_change_requests:
+                                info_parts.append('<span class="badge badge-changes-requested">CHANGES REQUESTED</span>')
+                            if 'ready for review' in labels:
+                                info_parts.append('<span class="badge badge-ready-for-review">Ready for Review</span>')
+                            if 'ready to merge' in labels:
+                                info_parts.append('<span class="badge badge-ready-to-merge">Ready to Merge</span>')
+                            if 'developer approved' in labels:
+                                info_parts.append('<span class="badge badge-developer-approved">Developer Approved</span>')
+                            if 'maintainer approved' in labels:
+                                info_parts.append('<span class="badge badge-maintainer-approved">Maintainer Approved</span>')
+                            if review_count > 0:
+                                info_parts.append(f'<span class="badge badge-reviews">{review_count} review(s)</span>')
+                            if requested_reviewers:
+                                reviewers_str = ', '.join(requested_reviewers)
+                                info_parts.append(f'<span style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: 600; background: #17a2b8; color: white;">Requested: {reviewers_str}</span>')
+
+                            if info_parts:
+                                html += f'<div style="font-size: 0.9em; margin-bottom: 10px;">{" ".join(info_parts)}</div>\n'
+                            else:
+                                html += '<div style="font-size: 0.9em; color: #999; margin-bottom: 10px; font-style: italic;">No reviews yet</div>\n'
+
+                            html += '<div style="display: flex; gap: 10px;">\n'
+                            html += f'<button class="pr-copy-button" data-message="{escaped_code_message}" style="flex: 1; background: #667eea; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85em; transition: background-color 0.2s ease;">Copy Code Review Message</button>\n'
+                            html += f'<button class="pr-copy-button" data-message="{escaped_test_message}" style="flex: 1; background: #764ba2; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85em; transition: background-color 0.2s ease;">Copy Testing Message</button>\n'
+                            html += '</div>\n'
+                            html += '</div>\n'
+
                         html += '</details>\n'
                         html += '</div>\n'
 
