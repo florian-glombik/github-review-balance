@@ -457,7 +457,7 @@ class OutputFormatter:
         html_parts.append(self._generate_review_balance_html(all_users, reviewed_by_me, reviewed_by_others, pr_authors, open_prs_by_author, my_open_prs))
 
         # Open PRs
-        html_parts.append(self._generate_open_prs_html(open_prs_by_author, reviewed_by_me, reviewed_by_others, my_open_prs))
+        html_parts.append(self._generate_open_prs_html(open_prs_by_author, reviewed_by_me, reviewed_by_others, my_open_prs, all_users, pr_authors))
 
         # Detailed history (if enabled)
         if self.show_extended_report:
@@ -1085,21 +1085,11 @@ class OutputFormatter:
                     rows.forEach(row => tbody.appendChild(row));
                 }}
 
-                // Row click navigation with disabled state check
+                // Row click navigation - scroll to user section
                 tbody.querySelectorAll('tr').forEach(row => {{
                     const username = row.cells[0].textContent.trim();
 
-                    // Mark rows without open PRs as disabled
-                    if (!usersWithOpenPRs.includes(username)) {{
-                        row.classList.add('disabled');
-                    }}
-
                     row.addEventListener('click', () => {{
-                        if (row.classList.contains('disabled')) {{
-                            alert(`No open PRs to review from ${{username}}`);
-                            return;
-                        }}
-
                         const targetSection = document.getElementById('user-' + username);
                         if (targetSection) {{
                             targetSection.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
@@ -1427,15 +1417,17 @@ class OutputFormatter:
         html += '<th>They Reviewed</th><th>I Reviewed</th><th>Balance</th><th>Action</th>\n'
         html += '</tr></thead>\n<tbody>\n'
 
+        users_with_open_prs = set(open_prs_by_author.keys()) if open_prs_by_author else set()
         for item in review_balance:
-            html += self._generate_balance_row_html(item)
+            html += self._generate_balance_row_html(item, users_with_open_prs)
 
         html += '</tbody>\n</table>\n'
         return html
 
-    def _generate_balance_row_html(self, item: dict) -> str:
+    def _generate_balance_row_html(self, item: dict, users_with_open_prs: set = None) -> str:
         """Generate HTML for a single balance table row."""
         user = item['user']
+        has_open_prs = users_with_open_prs and user in users_with_open_prs
         balance = item['balance']
         total_prs = item['total_prs']
         they_reviewed = item['they_reviewed']
@@ -1469,7 +1461,8 @@ class OutputFormatter:
             action = "← They should review my PRs"
             balance_str = f"{balance:,}"
 
-        return f'''<tr class="{balance_class}">
+        row_classes = balance_class if has_open_prs else f"{balance_class} disabled"
+        return f'''<tr class="{row_classes}">
     <td>{user}</td>
     <td>{total_prs}</td>
     <td>{their_prs_i_reviewed}</td>
@@ -1486,7 +1479,9 @@ class OutputFormatter:
         open_prs_by_author: Dict[str, list],
         reviewed_by_me: Dict[str, ReviewStats],
         reviewed_by_others: Dict[str, ReviewStats],
-        my_open_prs: list = None
+        my_open_prs: list = None,
+        all_users: Set[str] = None,
+        pr_authors: Set[str] = None
     ) -> str:
         """Generate HTML for open PRs section."""
         html = '<h2>Open PRs That Need Your Review</h2>\n'
@@ -1765,6 +1760,107 @@ class OutputFormatter:
                 html += '</div>\n'
 
             html += '</div>\n'
+
+        # Generate sections for users without open PRs (for navigation from the table)
+        if all_users:
+            # Filter users based on filter_non_pr_authors flag
+            filtered_users = all_users
+            if self.filter_non_pr_authors and pr_authors is not None:
+                filtered_users = {user for user in all_users if user in pr_authors}
+
+            # Get users without open PRs
+            users_with_open_prs = set(open_prs_by_author.keys()) if open_prs_by_author else set()
+            users_without_open_prs = filtered_users - users_with_open_prs
+
+            if users_without_open_prs:
+                html += '<h2>Other Collaborators</h2>\n'
+                html += '<p style="color: #666; margin-bottom: 20px;">These users have review history with you but no open PRs that need your review.</p>\n'
+
+                # Sort by review balance (same logic as main section)
+                users_balance = []
+                for user in users_without_open_prs:
+                    my_reviews = reviewed_by_me[user]
+                    their_reviews = reviewed_by_others[user]
+                    balance = their_reviews.lines_reviewed - my_reviews.lines_reviewed
+                    users_balance.append({'user': user, 'balance': balance})
+                users_balance.sort(key=lambda x: x['balance'], reverse=True)
+
+                for item in users_balance:
+                    user = item['user']
+                    html += f'<div class="author-section" id="user-{user}">\n'
+                    html += f'<div class="author-name">'
+                    html += f'<a href="https://github.com/{user}" class="author-link" target="_blank">{user}</a>'
+                    html += f' <span style="color: #999;">(No open PRs to review)</span>'
+                    html += f' <a href="#" class="back-to-table" data-username="{user}">↑ overview</a>'
+                    html += '</div>\n'
+
+                    # Add collapsible details section showing review history with this user
+                    my_reviews = reviewed_by_me.get(user)
+                    their_reviews = reviewed_by_others.get(user)
+
+                    if my_reviews or their_reviews:
+                        html += '<details style="margin-top: 10px;">\n'
+                        html += f'<summary style="cursor: pointer; font-weight: 600; color: #667eea;">Review History with {user}</summary>\n'
+                        html += '<div style="padding: 15px; background: #fafafa; border-radius: 4px; margin-top: 10px;">\n'
+
+                        # Summary table
+                        html += '<table class="metric-table" style="width: 100%; margin: 10px 0;">\n'
+                        html += '<thead><tr><th>Metric</th><th>I Reviewed</th><th>They Reviewed</th></tr></thead>\n'
+                        html += '<tbody>\n'
+
+                        my_prs_reviewed = my_reviews.prs_reviewed if my_reviews else 0
+                        their_prs_reviewed = their_reviews.prs_reviewed if their_reviews else 0
+                        my_lines = my_reviews.lines_reviewed if my_reviews else 0
+                        their_lines = their_reviews.lines_reviewed if their_reviews else 0
+                        my_additions = my_reviews.additions_reviewed if my_reviews else 0
+                        their_additions = their_reviews.additions_reviewed if their_reviews else 0
+                        my_deletions = my_reviews.deletions_reviewed if my_reviews else 0
+                        their_deletions = their_reviews.deletions_reviewed if their_reviews else 0
+                        my_events = my_reviews.review_events if my_reviews else 0
+                        their_events = their_reviews.review_events if their_reviews else 0
+                        my_comments = my_reviews.comments if my_reviews else 0
+                        their_comments = their_reviews.comments if their_reviews else 0
+
+                        html += f'<tr><td>PRs reviewed</td><td>{my_prs_reviewed}</td><td>{their_prs_reviewed}</td></tr>\n'
+                        html += f'<tr><td>Lines reviewed (total)</td><td>{my_lines:,}</td><td>{their_lines:,}</td></tr>\n'
+                        html += f'<tr><td>&nbsp;&nbsp;+lines (additions)</td><td>{my_additions:,}</td><td>{their_additions:,}</td></tr>\n'
+                        html += f'<tr><td>&nbsp;&nbsp;-lines (deletions)</td><td>{my_deletions:,}</td><td>{their_deletions:,}</td></tr>\n'
+                        html += f'<tr><td>Review events</td><td>{my_events}</td><td>{their_events}</td></tr>\n'
+                        html += f'<tr><td>Comments written</td><td>{my_comments}</td><td>{their_comments}</td></tr>\n'
+                        html += '</tbody>\n</table>\n'
+
+                        # List PRs I reviewed
+                        if my_reviews and my_reviews.prs:
+                            html += f'<p style="margin-top: 15px;"><strong>PRs I reviewed from {user} ({len(my_reviews.prs)}):</strong></p>\n'
+                            html += '<ul style="margin-left: 20px;">\n'
+                            for pr in my_reviews.prs:
+                                html += f'<li>#{pr["number"]}: {pr["title"]}<br>\n'
+                                html += f'<a href="{pr["url"]}" class="pr-link" target="_blank">{pr["url"]}</a> '
+                                html += f'(+{pr["additions"]:,} / -{pr["deletions"]:,} lines)</li>\n'
+                            html += '</ul>\n'
+
+                        # List PRs they reviewed
+                        if their_reviews and their_reviews.prs:
+                            html += f'<p style="margin-top: 15px;"><strong>PRs {user} reviewed for me ({len(their_reviews.prs)}):</strong></p>\n'
+                            html += '<ul style="margin-left: 20px;">\n'
+                            for pr in their_reviews.prs:
+                                html += f'<li>#{pr["number"]}: {pr["title"]}<br>\n'
+                                html += f'<a href="{pr["url"]}" class="pr-link" target="_blank">{pr["url"]}</a> '
+                                html += f'(+{pr["additions"]:,} / -{pr["deletions"]:,} lines)</li>\n'
+                            html += '</ul>\n'
+
+                        html += '</div>\n</details>\n'
+
+                    # Add section for my PRs that this user can review
+                    if my_open_prs:
+                        html += '<div style="margin-top: 20px; padding-top: 15px; border-top: 2px solid #ddd;">\n'
+                        html += '<details>\n'
+                        html += f'<summary class="user-prs-summary">My PRs for {user} to Review ({len(my_open_prs)})</summary>\n'
+                        html += '<p style="font-size: 0.9em; color: #666; margin-bottom: 10px; margin-top: 10px;">Click either button to copy a personalized Slack-ready message requesting code review or testing</p>\n'
+                        html += '</details>\n'
+                        html += '</div>\n'
+
+                    html += '</div>\n'
 
         return html
 

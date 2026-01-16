@@ -780,6 +780,177 @@ class TestReviewRequestedIndicator:
             assert 'bob' in output
 
 
+class TestDisabledRowsForUsersWithoutOpenPRs:
+    """Test cases for greying out users who have no open PRs to review."""
+
+    def test_disabled_class_added_for_users_without_open_prs(self):
+        """Test that rows for users without open PRs have the disabled class."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        # alice has review history but NO open PRs
+        reviewed_by_me['alice'].prs_reviewed = 2
+        reviewed_by_me['alice'].lines_reviewed = 200
+
+        # bob has review history AND open PRs
+        reviewed_by_me['bob'].prs_reviewed = 1
+        reviewed_by_me['bob'].lines_reviewed = 100
+
+        # Only bob has open PRs
+        open_prs_by_author = {
+            'bob': [{
+                'number': 123,
+                'title': 'Test PR',
+                'url': 'https://github.com/test/repo/pull/123',
+                'repo': 'test/repo',
+                'additions': 50,
+                'deletions': 20,
+                'review_count': 0,
+                'requested_my_review': False
+            }]
+        }
+
+        formatter = OutputFormatter('test_user')
+        html = formatter.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author)
+
+        # alice's row should have 'disabled' class (no open PRs)
+        assert 'class="balance-positive disabled"' in html or 'class="balance-negative disabled"' in html or 'class="balance-neutral disabled"' in html or 'class="balance-warning disabled"' in html
+
+        # bob's row should NOT have 'disabled' class (has open PRs)
+        # Check that there's a row without disabled class
+        assert ('<tr class="balance-positive">' in html or
+                '<tr class="balance-negative">' in html or
+                '<tr class="balance-neutral">' in html or
+                '<tr class="balance-warning">' in html)
+
+    def test_no_disabled_class_when_user_has_open_prs(self):
+        """Test that rows for users with open PRs do NOT have the disabled class."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        reviewed_by_me['alice'].prs_reviewed = 2
+        reviewed_by_me['alice'].lines_reviewed = 200
+
+        # alice has open PRs
+        open_prs_by_author = {
+            'alice': [{
+                'number': 123,
+                'title': 'Test PR',
+                'url': 'https://github.com/test/repo/pull/123',
+                'repo': 'test/repo',
+                'additions': 50,
+                'deletions': 20,
+                'review_count': 0,
+                'requested_my_review': False
+            }]
+        }
+
+        formatter = OutputFormatter('test_user')
+        html = formatter.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author)
+
+        # alice's row should NOT have 'disabled' class
+        assert 'disabled' not in html or 'class="balance-positive disabled"' not in html
+
+    def test_all_rows_disabled_when_no_open_prs(self):
+        """Test that all rows have disabled class when there are no open PRs."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        reviewed_by_me['alice'].prs_reviewed = 2
+        reviewed_by_me['alice'].lines_reviewed = 200
+        reviewed_by_me['bob'].prs_reviewed = 1
+        reviewed_by_me['bob'].lines_reviewed = 100
+
+        # No open PRs
+        open_prs_by_author = {}
+
+        formatter = OutputFormatter('test_user')
+        html = formatter.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author)
+
+        # Both rows should have 'disabled' class
+        # Count occurrences of 'disabled' in tr class attributes
+        import re
+        disabled_rows = re.findall(r'<tr class="[^"]*disabled[^"]*">', html)
+        assert len(disabled_rows) == 2, f"Expected 2 disabled rows, found {len(disabled_rows)}"
+
+    def test_other_collaborators_section_generated_for_users_without_open_prs(self):
+        """Test that 'Other Collaborators' section is generated for users without open PRs."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        # alice has review history but NO open PRs
+        reviewed_by_me['alice'].prs_reviewed = 2
+        reviewed_by_me['alice'].lines_reviewed = 200
+
+        # bob has review history AND open PRs
+        reviewed_by_me['bob'].prs_reviewed = 1
+        reviewed_by_me['bob'].lines_reviewed = 100
+
+        # Only bob has open PRs
+        open_prs_by_author = {
+            'bob': [{
+                'number': 123,
+                'title': 'Test PR',
+                'url': 'https://github.com/test/repo/pull/123',
+                'repo': 'test/repo',
+                'additions': 50,
+                'deletions': 20,
+                'review_count': 0,
+                'requested_my_review': False
+            }]
+        }
+
+        formatter = OutputFormatter('test_user')
+        html = formatter.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author)
+
+        # Should have 'Other Collaborators' section
+        assert 'Other Collaborators' in html
+
+        # alice should have a section with id="user-alice"
+        assert 'id="user-alice"' in html
+
+        # bob should also have a section with id="user-bob"
+        assert 'id="user-bob"' in html
+
+        # alice's section should indicate no open PRs
+        assert 'No open PRs to review' in html
+
+    def test_all_users_have_sections_for_navigation(self):
+        """Test that all users in the table have corresponding sections for click navigation."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        # Create multiple users, some with and some without open PRs
+        reviewed_by_me['alice'].prs_reviewed = 2
+        reviewed_by_me['alice'].lines_reviewed = 200
+        reviewed_by_me['bob'].prs_reviewed = 1
+        reviewed_by_me['bob'].lines_reviewed = 100
+        reviewed_by_me['charlie'].prs_reviewed = 3
+        reviewed_by_me['charlie'].lines_reviewed = 300
+
+        # Only alice has open PRs
+        open_prs_by_author = {
+            'alice': [{
+                'number': 123,
+                'title': 'Test PR',
+                'url': 'https://github.com/test/repo/pull/123',
+                'repo': 'test/repo',
+                'additions': 50,
+                'deletions': 20,
+                'review_count': 0,
+                'requested_my_review': False
+            }]
+        }
+
+        formatter = OutputFormatter('test_user')
+        html = formatter.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author)
+
+        # All users should have navigation sections
+        assert 'id="user-alice"' in html
+        assert 'id="user-bob"' in html
+        assert 'id="user-charlie"' in html
+
+
 class TestFilterNonPRAuthors:
     """Test cases for filtering out users who haven't opened any PRs."""
 
