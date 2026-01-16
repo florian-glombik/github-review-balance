@@ -942,9 +942,9 @@ class OutputFormatter:
             font-size: 1.2em;
             color: #667eea;
             padding: 10px;
-            margin: -15px -15px 15px -15px;
+            margin: -15px;
             background: linear-gradient(135deg, #e8eaf6 0%, #d1d5f0 100%);
-            border-radius: 8px 8px 0 0;
+            border-radius: 8px;
             user-select: none;
         }}
 
@@ -954,7 +954,7 @@ class OutputFormatter:
 
         details[open] summary {{
             border-radius: 8px 8px 0 0;
-            margin-bottom: 20px;
+            margin: -15px -15px 20px -15px;
         }}
 
         .user-pr-item {{
