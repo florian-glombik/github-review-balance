@@ -957,6 +957,25 @@ class OutputFormatter:
             margin: -15px -15px 20px -15px;
         }}
 
+        .my-prs-summary {{
+            font-size: 1.5em;
+            padding: 15px;
+            margin: -20px;
+            background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+        }}
+
+        details[open] .my-prs-summary {{
+            margin: -20px -20px 20px -20px;
+        }}
+
+        .user-prs-summary {{
+            font-size: 1.1em;
+        }}
+
+        details[open] .user-prs-summary {{
+            margin-bottom: 10px;
+        }}
+
         .user-pr-item {{
             padding: 10px;
             margin: 5px 0;
@@ -1263,7 +1282,7 @@ class OutputFormatter:
         """Generate HTML for my open PRs section with copyable messages per PR."""
         html = '<div class="my-prs-section">\n'
         html += '<details open>\n'
-        html += '<summary style="cursor: pointer; font-weight: 600; font-size: 1.5em; color: #667eea; padding: 15px; margin: -20px -20px 20px -20px; background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%); border-radius: 8px; user-select: none;">My Open PRs Needing Review</summary>\n'
+        html += '<summary class="my-prs-summary">My Open PRs Needing Review</summary>\n'
         html += f'<p>You have <strong>{len(my_open_prs)}</strong> open PR(s). Click either button to copy a Slack-ready message requesting code review or testing.</p>\n'
         html += '<p style="background: #fff3cd; border: 1px solid #ffc107; padding: 10px; border-radius: 4px; margin: 10px 0;"><strong>⚠️ Important:</strong> Press <kbd>CMD/CTRL + Shift + F</kbd> before sending the message in Slack to apply formatting!</p>\n'
 
@@ -1664,7 +1683,7 @@ class OutputFormatter:
             if my_open_prs:
                 html += '<div style="margin-top: 20px; padding-top: 15px; border-top: 2px solid #ddd;">\n'
                 html += '<details>\n'
-                html += f'<summary style="cursor: pointer; font-weight: 600; color: #667eea; font-size: 1.1em; margin-bottom: 10px;">My PRs for {author} to Review ({len(my_open_prs)})</summary>\n'
+                html += f'<summary class="user-prs-summary">My PRs for {author} to Review ({len(my_open_prs)})</summary>\n'
                 html += '<p style="font-size: 0.9em; color: #666; margin-bottom: 10px; margin-top: 10px;">Click either button to copy a personalized Slack-ready message requesting code review or testing</p>\n'
                 html += '<p style="background: #fff3cd; border: 1px solid #ffc107; padding: 8px; border-radius: 4px; margin: 10px 0; font-size: 0.85em;"><strong>⚠️ Important:</strong> Press <kbd>CMD/CTRL + Shift + F</kbd> before sending the message in Slack to apply formatting!</p>\n'
 
