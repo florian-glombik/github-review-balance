@@ -1180,6 +1180,10 @@ class OutputFormatter:
     <div class="container">
         <h1>GitHub PR Review Analysis</h1>
         <div class="timestamp">Generated on {timestamp} for user: <strong>{self.username}</strong></div>
+        <div style="margin-top: 10px;">
+            <a href="https://github.com/florian-glombik/github-review-balance/issues" target="_blank" style="display: inline-block; padding: 6px 12px; background: #6c757d; color: white; border-radius: 4px; text-decoration: none; font-size: 0.85em; margin-right: 8px;">Report bugs</a>
+            <a href="https://github.com/florian-glombik/github-review-balance" target="_blank" style="display: inline-block; padding: 6px 12px; background: #28a745; color: white; border-radius: 4px; text-decoration: none; font-size: 0.85em;">Improve this tool</a>
+        </div>
 '''
 
     def _generate_html_footer(self) -> str:
@@ -1576,6 +1580,12 @@ class OutputFormatter:
                 if priority_text:
                     html += f' <span style="color: #28a745;">({priority_text})</span>'
                 html += f' <a href="#" class="back-to-table" data-username="{author}">↑ overview</a>'
+                # Add filter links for each repository
+                if 'repositories' in self.config:
+                    for repo in self.config['repositories']:
+                        repo_short = repo.split('/')[-1]
+                        filter_url = f'https://github.com/{repo}/pulls?q=is:open+is:pr+assignee:{author}'
+                        html += f' <a href="{filter_url}" target="_blank" style="display: inline-block; padding: 2px 8px; background: #667eea; color: white; border-radius: 4px; text-decoration: none; font-size: 0.75em; margin-left: 5px;">{repo_short} PRs</a>'
                 html += '</div>\n'
                 html += '<ul class="pr-list">\n'
 
@@ -1625,149 +1635,149 @@ class OutputFormatter:
 
                 html += '</ul>\n'
 
-            # Add collapsible details section showing review history with this user
-            my_reviews = reviewed_by_me.get(author)
-            their_reviews = reviewed_by_others.get(author)
+                # Add collapsible details section showing review history with this user
+                my_reviews = reviewed_by_me.get(author)
+                their_reviews = reviewed_by_others.get(author)
 
-            if my_reviews or their_reviews:
-                html += '<details style="margin-top: 20px;">\n'
-                html += f'<summary style="cursor: pointer; font-weight: 600; color: #667eea;">Review History with {author}</summary>\n'
-                html += '<div style="padding: 15px; background: #fafafa; border-radius: 4px; margin-top: 10px;">\n'
+                if my_reviews or their_reviews:
+                    html += '<details style="margin-top: 20px;">\n'
+                    html += f'<summary style="cursor: pointer; font-weight: 600; color: #667eea;">Review History with {author}</summary>\n'
+                    html += '<div style="padding: 15px; background: #fafafa; border-radius: 4px; margin-top: 10px;">\n'
 
-                # Summary table
-                html += '<table class="metric-table" style="width: 100%; margin: 10px 0;">\n'
-                html += '<thead><tr><th>Metric</th><th>I Reviewed</th><th>They Reviewed</th></tr></thead>\n'
-                html += '<tbody>\n'
+                    # Summary table
+                    html += '<table class="metric-table" style="width: 100%; margin: 10px 0;">\n'
+                    html += '<thead><tr><th>Metric</th><th>I Reviewed</th><th>They Reviewed</th></tr></thead>\n'
+                    html += '<tbody>\n'
 
-                my_prs_reviewed = my_reviews.prs_reviewed if my_reviews else 0
-                their_prs_reviewed = their_reviews.prs_reviewed if their_reviews else 0
-                my_lines = my_reviews.lines_reviewed if my_reviews else 0
-                their_lines = their_reviews.lines_reviewed if their_reviews else 0
-                my_additions = my_reviews.additions_reviewed if my_reviews else 0
-                their_additions = their_reviews.additions_reviewed if their_reviews else 0
-                my_deletions = my_reviews.deletions_reviewed if my_reviews else 0
-                their_deletions = their_reviews.deletions_reviewed if their_reviews else 0
-                my_events = my_reviews.review_events if my_reviews else 0
-                their_events = their_reviews.review_events if their_reviews else 0
-                my_comments = my_reviews.comments if my_reviews else 0
-                their_comments = their_reviews.comments if their_reviews else 0
+                    my_prs_reviewed = my_reviews.prs_reviewed if my_reviews else 0
+                    their_prs_reviewed = their_reviews.prs_reviewed if their_reviews else 0
+                    my_lines = my_reviews.lines_reviewed if my_reviews else 0
+                    their_lines = their_reviews.lines_reviewed if their_reviews else 0
+                    my_additions = my_reviews.additions_reviewed if my_reviews else 0
+                    their_additions = their_reviews.additions_reviewed if their_reviews else 0
+                    my_deletions = my_reviews.deletions_reviewed if my_reviews else 0
+                    their_deletions = their_reviews.deletions_reviewed if their_reviews else 0
+                    my_events = my_reviews.review_events if my_reviews else 0
+                    their_events = their_reviews.review_events if their_reviews else 0
+                    my_comments = my_reviews.comments if my_reviews else 0
+                    their_comments = their_reviews.comments if their_reviews else 0
 
-                html += f'<tr><td>PRs reviewed</td><td>{my_prs_reviewed}</td><td>{their_prs_reviewed}</td></tr>\n'
-                html += f'<tr><td>Lines reviewed (total)</td><td>{my_lines:,}</td><td>{their_lines:,}</td></tr>\n'
-                html += f'<tr><td>&nbsp;&nbsp;+lines (additions)</td><td>{my_additions:,}</td><td>{their_additions:,}</td></tr>\n'
-                html += f'<tr><td>&nbsp;&nbsp;-lines (deletions)</td><td>{my_deletions:,}</td><td>{their_deletions:,}</td></tr>\n'
-                html += f'<tr><td>Review events</td><td>{my_events}</td><td>{their_events}</td></tr>\n'
-                html += f'<tr><td>Comments written</td><td>{my_comments}</td><td>{their_comments}</td></tr>\n'
-                html += '</tbody>\n</table>\n'
+                    html += f'<tr><td>PRs reviewed</td><td>{my_prs_reviewed}</td><td>{their_prs_reviewed}</td></tr>\n'
+                    html += f'<tr><td>Lines reviewed (total)</td><td>{my_lines:,}</td><td>{their_lines:,}</td></tr>\n'
+                    html += f'<tr><td>&nbsp;&nbsp;+lines (additions)</td><td>{my_additions:,}</td><td>{their_additions:,}</td></tr>\n'
+                    html += f'<tr><td>&nbsp;&nbsp;-lines (deletions)</td><td>{my_deletions:,}</td><td>{their_deletions:,}</td></tr>\n'
+                    html += f'<tr><td>Review events</td><td>{my_events}</td><td>{their_events}</td></tr>\n'
+                    html += f'<tr><td>Comments written</td><td>{my_comments}</td><td>{their_comments}</td></tr>\n'
+                    html += '</tbody>\n</table>\n'
 
-                # List PRs I reviewed
-                if my_reviews and my_reviews.prs:
-                    html += f'<p style="margin-top: 15px;"><strong>📝 PRs I reviewed from {author} ({len(my_reviews.prs)}):</strong></p>\n'
-                    html += '<ul style="margin-left: 20px;">\n'
-                    for pr in my_reviews.prs:
-                        html += f'<li>#{pr["number"]}: {pr["title"]}<br>\n'
-                        html += f'<a href="{pr["url"]}" class="pr-link" target="_blank">{pr["url"]}</a> '
-                        html += f'(+{pr["additions"]:,} / -{pr["deletions"]:,} lines)</li>\n'
-                    html += '</ul>\n'
+                    # List PRs I reviewed
+                    if my_reviews and my_reviews.prs:
+                        html += f'<p style="margin-top: 15px;"><strong>📝 PRs I reviewed from {author} ({len(my_reviews.prs)}):</strong></p>\n'
+                        html += '<ul style="margin-left: 20px;">\n'
+                        for pr in my_reviews.prs:
+                            html += f'<li>#{pr["number"]}: {pr["title"]}<br>\n'
+                            html += f'<a href="{pr["url"]}" class="pr-link" target="_blank">{pr["url"]}</a> '
+                            html += f'(+{pr["additions"]:,} / -{pr["deletions"]:,} lines)</li>\n'
+                        html += '</ul>\n'
 
-                # List PRs they reviewed
-                if their_reviews and their_reviews.prs:
-                    html += f'<p style="margin-top: 15px;"><strong>📝 PRs {author} reviewed for me ({len(their_reviews.prs)}):</strong></p>\n'
-                    html += '<ul style="margin-left: 20px;">\n'
-                    for pr in their_reviews.prs:
-                        html += f'<li>#{pr["number"]}: {pr["title"]}<br>\n'
-                        html += f'<a href="{pr["url"]}" class="pr-link" target="_blank">{pr["url"]}</a> '
-                        html += f'(+{pr["additions"]:,} / -{pr["deletions"]:,} lines)</li>\n'
-                    html += '</ul>\n'
+                    # List PRs they reviewed
+                    if their_reviews and their_reviews.prs:
+                        html += f'<p style="margin-top: 15px;"><strong>📝 PRs {author} reviewed for me ({len(their_reviews.prs)}):</strong></p>\n'
+                        html += '<ul style="margin-left: 20px;">\n'
+                        for pr in their_reviews.prs:
+                            html += f'<li>#{pr["number"]}: {pr["title"]}<br>\n'
+                            html += f'<a href="{pr["url"]}" class="pr-link" target="_blank">{pr["url"]}</a> '
+                            html += f'(+{pr["additions"]:,} / -{pr["deletions"]:,} lines)</li>\n'
+                        html += '</ul>\n'
 
-                html += '</div>\n</details>\n'
+                    html += '</div>\n</details>\n'
 
-            # Add section for my PRs that this user can review
-            if my_open_prs:
-                html += '<div style="margin-top: 20px; padding-top: 15px; border-top: 2px solid #ddd;">\n'
-                html += '<details>\n'
-                html += f'<summary class="user-prs-summary">My PRs for {author} to Review ({len(my_open_prs)})</summary>\n'
-                html += '<p style="font-size: 0.9em; color: #666; margin-bottom: 10px; margin-top: 10px;">Click either button to copy a personalized Slack-ready message requesting code review or testing</p>\n'
-                html += '<p style="background: #fff3cd; border: 1px solid #ffc107; padding: 8px; border-radius: 4px; margin: 10px 0; font-size: 0.85em;"><strong>⚠️ Important:</strong> Press <kbd>CMD/CTRL + Shift + F</kbd> before sending the message in Slack to apply formatting!</p>\n'
+                # Add section for my PRs that this user can review
+                if my_open_prs:
+                    html += '<div style="margin-top: 20px; padding-top: 15px; border-top: 2px solid #ddd;">\n'
+                    html += '<details>\n'
+                    html += f'<summary class="user-prs-summary">My PRs for {author} to Review ({len(my_open_prs)})</summary>\n'
+                    html += '<p style="font-size: 0.9em; color: #666; margin-bottom: 10px; margin-top: 10px;">Click either button to copy a personalized Slack-ready message requesting code review or testing</p>\n'
+                    html += '<p style="background: #fff3cd; border: 1px solid #ffc107; padding: 8px; border-radius: 4px; margin: 10px 0; font-size: 0.85em;"><strong>⚠️ Important:</strong> Press <kbd>CMD/CTRL + Shift + F</kbd> before sending the message in Slack to apply formatting!</p>\n'
 
-                for pr in my_open_prs:
-                    repo_name = pr['repo']
-                    repo_short = repo_name.split('/')[-1]
-                    pr_title = pr['title']
-                    pr_url = pr['url']
-                    additions = pr['additions']
-                    deletions = pr['deletions']
-                    total_lines = additions + deletions
-                    review_count = pr.get('review_count', 0)
-                    requested_reviewers = pr.get('requested_reviewers', [])
-                    labels = pr.get('labels', [])
-                    has_change_requests = pr.get('has_change_requests', False)
+                    for pr in my_open_prs:
+                        repo_name = pr['repo']
+                        repo_short = repo_name.split('/')[-1]
+                        pr_title = pr['title']
+                        pr_url = pr['url']
+                        additions = pr['additions']
+                        deletions = pr['deletions']
+                        total_lines = additions + deletions
+                        review_count = pr.get('review_count', 0)
+                        requested_reviewers = pr.get('requested_reviewers', [])
+                        labels = pr.get('labels', [])
+                        has_change_requests = pr.get('has_change_requests', False)
 
-                    # Generate personalized messages for this user in Slack format
-                    # Slack uses *text* for bold
-                    # Note: Don't use <url|text> syntax as it doesn't work with auto-format
-                    # Remove backticks from title
-                    slack_title = pr_title.replace('`', '')
+                        # Generate personalized messages for this user in Slack format
+                        # Slack uses *text* for bold
+                        # Note: Don't use <url|text> syntax as it doesn't work with auto-format
+                        # Remove backticks from title
+                        slack_title = pr_title.replace('`', '')
 
-                    # Build message with PR name and URL with line counts directly after
-                    code_review_message = f"Hey {author}, I need your help for *a code review* on: *{slack_title}*\n"
-                    code_review_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
-                    code_review_message += "As always, I am happy to trade reviews :smile:"
+                        # Build message with PR name and URL with line counts directly after
+                        code_review_message = f"Hey {author}, I need your help for *a code review* on: *{slack_title}*\n"
+                        code_review_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
+                        code_review_message += "As always, I am happy to trade reviews :smile:"
 
-                    testing_message = f"Hey {author}, I need your help for *a manual test* on: *{slack_title}*\n"
-                    testing_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
-                    testing_message += "As always, I am happy to trade reviews :smile:"
+                        testing_message = f"Hey {author}, I need your help for *a manual test* on: *{slack_title}*\n"
+                        testing_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
+                        testing_message += "As always, I am happy to trade reviews :smile:"
 
-                    # Escape only quotes and backslashes for HTML data attribute (preserve Slack formatting)
-                    escaped_code_message = code_review_message.replace('\\', '\\\\').replace('"', '&quot;')
-                    escaped_test_message = testing_message.replace('\\', '\\\\').replace('"', '&quot;')
+                        # Escape only quotes and backslashes for HTML data attribute (preserve Slack formatting)
+                        escaped_code_message = code_review_message.replace('\\', '\\\\').replace('"', '&quot;')
+                        escaped_test_message = testing_message.replace('\\', '\\\\').replace('"', '&quot;')
 
-                    html += f'<div style="margin: 10px 0; padding: 15px; background: #f0f0f0; border-radius: 4px; border-left: 4px solid #667eea;">\n'
-                    html += f'<div style="font-weight: 600; margin-bottom: 10px;">[{repo_short}] #{pr["number"]}: {pr_title}</div>\n'
-                    html += f'<div style="font-size: 0.9em; color: #666; margin-bottom: 5px;">{pr_url}</div>\n'
-                    html += f'<div style="font-size: 0.9em; color: #666; margin-bottom: 5px;">(+{additions:,} / -{deletions:,} lines)</div>\n'
+                        html += f'<div style="margin: 10px 0; padding: 15px; background: #f0f0f0; border-radius: 4px; border-left: 4px solid #667eea;">\n'
+                        html += f'<div style="font-weight: 600; margin-bottom: 10px;">[{repo_short}] #{pr["number"]}: {pr_title}</div>\n'
+                        html += f'<div style="font-size: 0.9em; color: #666; margin-bottom: 5px;">{pr_url}</div>\n'
+                        html += f'<div style="font-size: 0.9em; color: #666; margin-bottom: 5px;">(+{additions:,} / -{deletions:,} lines)</div>\n'
 
-                    # Display review count, requested reviewers, labels, and change requests
-                    info_parts = []
+                        # Display review count, requested reviewers, labels, and change requests
+                        info_parts = []
 
-                    # Change request badge
-                    if has_change_requests:
-                        info_parts.append(f'<span class="badge badge-changes-requested">CHANGES REQUESTED</span>')
+                        # Change request badge
+                        if has_change_requests:
+                            info_parts.append(f'<span class="badge badge-changes-requested">CHANGES REQUESTED</span>')
 
-                    # Label badges
-                    if 'ready for review' in labels:
-                        info_parts.append(f'<span class="badge badge-ready-for-review">Ready for Review</span>')
-                    if 'ready to merge' in labels:
-                        info_parts.append(f'<span class="badge badge-ready-to-merge">Ready to Merge</span>')
-                    if 'developer approved' in labels:
-                        info_parts.append(f'<span class="badge badge-developer-approved">Developer Approved</span>')
-                    if 'maintainer approved' in labels:
-                        info_parts.append(f'<span class="badge badge-maintainer-approved">Maintainer Approved</span>')
+                        # Label badges
+                        if 'ready for review' in labels:
+                            info_parts.append(f'<span class="badge badge-ready-for-review">Ready for Review</span>')
+                        if 'ready to merge' in labels:
+                            info_parts.append(f'<span class="badge badge-ready-to-merge">Ready to Merge</span>')
+                        if 'developer approved' in labels:
+                            info_parts.append(f'<span class="badge badge-developer-approved">Developer Approved</span>')
+                        if 'maintainer approved' in labels:
+                            info_parts.append(f'<span class="badge badge-maintainer-approved">Maintainer Approved</span>')
 
-                    # Review count
-                    if review_count > 0:
-                        info_parts.append(f'<span class="badge badge-reviews">{review_count} review(s)</span>')
+                        # Review count
+                        if review_count > 0:
+                            info_parts.append(f'<span class="badge badge-reviews">{review_count} review(s)</span>')
 
-                    # Requested reviewers
-                    if requested_reviewers:
-                        reviewers_str = ', '.join(requested_reviewers)
-                        info_parts.append(f'<span style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: 600; background: #17a2b8; color: white;">Requested: {reviewers_str}</span>')
+                        # Requested reviewers
+                        if requested_reviewers:
+                            reviewers_str = ', '.join(requested_reviewers)
+                            info_parts.append(f'<span style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: 600; background: #17a2b8; color: white;">Requested: {reviewers_str}</span>')
 
-                    if info_parts:
-                        html += f'<div style="font-size: 0.9em; margin-bottom: 10px;">{" ".join(info_parts)}</div>\n'
-                    else:
-                        html += '<div style="font-size: 0.9em; color: #999; margin-bottom: 10px; font-style: italic;">No reviews yet</div>\n'
+                        if info_parts:
+                            html += f'<div style="font-size: 0.9em; margin-bottom: 10px;">{" ".join(info_parts)}</div>\n'
+                        else:
+                            html += '<div style="font-size: 0.9em; color: #999; margin-bottom: 10px; font-style: italic;">No reviews yet</div>\n'
 
-                    html += '<div style="display: flex; gap: 10px;">\n'
-                    html += f'<button class="pr-copy-button" data-message="{escaped_code_message}" style="flex: 1; background: #667eea; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85em; transition: background-color 0.2s ease;">Copy Code Review Message</button>\n'
-                    html += f'<button class="pr-copy-button" data-message="{escaped_test_message}" style="flex: 1; background: #764ba2; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85em; transition: background-color 0.2s ease;">Copy Testing Message</button>\n'
+                        html += '<div style="display: flex; gap: 10px;">\n'
+                        html += f'<button class="pr-copy-button" data-message="{escaped_code_message}" style="flex: 1; background: #667eea; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85em; transition: background-color 0.2s ease;">Copy Code Review Message</button>\n'
+                        html += f'<button class="pr-copy-button" data-message="{escaped_test_message}" style="flex: 1; background: #764ba2; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85em; transition: background-color 0.2s ease;">Copy Testing Message</button>\n'
+                        html += '</div>\n'
+                        html += '</div>\n'
+
+                    html += '</details>\n'
                     html += '</div>\n'
-                    html += '</div>\n'
 
-                html += '</details>\n'
                 html += '</div>\n'
-
-            html += '</div>\n'
 
         # Generate sections for users without open PRs (for navigation from the table)
         if all_users:
@@ -1800,6 +1810,12 @@ class OutputFormatter:
                     html += f'<a href="https://github.com/{user}" class="author-link" target="_blank">{user}</a>'
                     html += f' <span style="color: #999;">(No open PRs to review)</span>'
                     html += f' <a href="#" class="back-to-table" data-username="{user}">↑ overview</a>'
+                    # Add filter links for each repository
+                    if 'repositories' in self.config:
+                        for repo in self.config['repositories']:
+                            repo_short = repo.split('/')[-1]
+                            filter_url = f'https://github.com/{repo}/pulls?q=is:open+is:pr+assignee:{user}'
+                            html += f' <a href="{filter_url}" target="_blank" style="display: inline-block; padding: 2px 8px; background: #667eea; color: white; border-radius: 4px; text-decoration: none; font-size: 0.75em; margin-left: 5px;">{repo_short} PRs</a>'
                     html += '</div>\n'
 
                     # Add collapsible details section showing review history with this user
