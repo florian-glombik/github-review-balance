@@ -928,11 +928,11 @@ class OutputFormatter:
 
         tbody tr.disabled {{
             opacity: 0.5;
-            cursor: not-allowed !important;
+            cursor: pointer;
         }}
 
         tbody tr.disabled:hover {{
-            background-color: transparent !important;
+            background-color: #f0f0f0;
         }}
 
         details {{
