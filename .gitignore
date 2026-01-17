@@ -3,3 +3,4 @@
 .github_review_cache.json
 .coverage
 reports/
+user_config.json

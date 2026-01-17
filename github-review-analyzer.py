@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 
 from src.github_review_analyzer import GitHubReviewAnalyzer
 from src.output import OutputFormatter
+from src.user_config import UserConfig
 
 # Configure logging (can be overridden by LOG_LEVEL environment variable)
 log_level = os.environ.get('LOG_LEVEL', 'INFO').upper()
@@ -175,6 +176,10 @@ def main():
     section_my_prs_for_author_expanded = os.environ.get('SECTION_MY_PRS_FOR_AUTHOR_EXPANDED', 'false').lower() in ('true', '1', 'yes')
     section_detailed_history_expanded = os.environ.get('SECTION_DETAILED_HISTORY_EXPANDED', 'false').lower() in ('true', '1', 'yes')
 
+    # Load user configuration (nicknames and language preferences)
+    user_config_path = os.environ.get('USER_CONFIG_PATH', 'user_config.json')
+    user_config = UserConfig(user_config_path)
+
     # Create analyzer
     analyzer = GitHubReviewAnalyzer(
         username,
@@ -202,6 +207,12 @@ def main():
     # Save cache
     analyzer.save_cache()
 
+    # Update user config with all discovered users (adds new users without overwriting)
+    all_users = set(analyzer.reviewed_by_me.keys()) | set(analyzer.reviewed_by_others.keys()) | analyzer.pr_authors
+    new_users = user_config.update_users(all_users)
+    if new_users > 0:
+        logging.info(f"Added {new_users} new user(s) to {user_config_path}")
+
     # Get open PRs and print summary
     logging.info("Analysis complete, generating summary...")
     open_prs_by_author = analyzer.get_open_prs_needing_review()
@@ -226,7 +237,7 @@ def main():
         'section_detailed_history_expanded': section_detailed_history_expanded
     }
 
-    output_formatter = OutputFormatter(username, sort_by, show_extended_report, show_overall_statistics, max_review_count_threshold, filter_non_pr_authors, config)
+    output_formatter = OutputFormatter(username, sort_by, show_extended_report, show_overall_statistics, max_review_count_threshold, filter_non_pr_authors, config, user_config)
     output_formatter.print_summary(
         analyzer.reviewed_by_me,
         analyzer.reviewed_by_others,

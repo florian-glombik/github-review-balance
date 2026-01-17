@@ -20,7 +20,7 @@ RESET = '\033[0m'
 class OutputFormatter:
     """Formats and prints review analysis results."""
 
-    def __init__(self, username: str, sort_by: str = 'total_prs', show_extended_report: bool = False, show_overall_statistics: bool = True, max_review_count_threshold: int = None, filter_non_pr_authors: bool = False, config: dict = None):
+    def __init__(self, username: str, sort_by: str = 'total_prs', show_extended_report: bool = False, show_overall_statistics: bool = True, max_review_count_threshold: int = None, filter_non_pr_authors: bool = False, config: dict = None, user_config=None):
         """Initialize the output formatter.
 
         Args:
@@ -31,6 +31,7 @@ class OutputFormatter:
             max_review_count_threshold: Minimum review count to filter PRs (None = no filtering)
             filter_non_pr_authors: Whether to filter out users who have not opened any PRs
             config: Configuration dictionary with analysis parameters (repositories, months, excluded_users, etc.)
+            user_config: UserConfig instance for nicknames and language preferences
         """
         self.username = username
         self.sort_by = sort_by
@@ -39,6 +40,7 @@ class OutputFormatter:
         self.max_review_count_threshold = max_review_count_threshold
         self.filter_non_pr_authors = filter_non_pr_authors
         self.config = config or {}
+        self.user_config = user_config
 
         # Section collapse settings (defaults match current behavior)
         self.section_settings_expanded = self.config.get('section_settings_expanded', True)
@@ -46,6 +48,37 @@ class OutputFormatter:
         self.section_review_history_expanded = self.config.get('section_review_history_expanded', False)
         self.section_my_prs_for_author_expanded = self.config.get('section_my_prs_for_author_expanded', False)
         self.section_detailed_history_expanded = self.config.get('section_detailed_history_expanded', False)
+
+    def _get_display_name(self, github_username: str) -> str:
+        """Get the display name for a user (nickname if set, otherwise GitHub username)."""
+        if self.user_config:
+            return self.user_config.get_nickname(github_username)
+        return github_username
+
+    def _get_user_language(self, github_username: str) -> str:
+        """Get the language preference for a user."""
+        if self.user_config:
+            return self.user_config.get_language(github_username)
+        return 'english'
+
+    def _get_message_templates(self, language: str) -> dict:
+        """Get message templates for the specified language."""
+        if language == 'german':
+            return {
+                'code_review_intro': "Hey, ich brauche eure Hilfe fuer *2 Code Reviews* fuer: *{title}*",
+                'testing_intro': "Hey, ich brauche eure Hilfe fuer *2 manuelle Tests* fuer: *{title}*",
+                'ready_to_merge_intro': "Hey, diese PR ist jetzt bereit zum Mergen: *{title}*",
+                'trade_offer': "Wie immer tausche ich gerne Reviews :smile:",
+                'thanks': "Danke fuer die Reviews! :tada:"
+            }
+        else:  # english (default)
+            return {
+                'code_review_intro': "Hey everyone, I need your help for *2 code reviews* on: *{title}*",
+                'testing_intro': "Hey everyone, I need your help for *2 manual tests* on: *{title}*",
+                'ready_to_merge_intro': "Hey everyone, this PR is now ready to merge: *{title}*",
+                'trade_offer': "As always, I am happy to trade reviews :smile:",
+                'thanks': "Thanks for the reviews! :tada:"
+            }
 
     def print_summary(
         self,
@@ -1313,18 +1346,22 @@ class OutputFormatter:
             # Remove backticks from title
             slack_title = pr_title.replace('`', '')
 
+            # Get message templates based on user's language preference
+            user_language = self._get_user_language(self.username)
+            templates = self._get_message_templates(user_language)
+
             # Build a message with PR name and URL with line counts directly after
-            code_review_message = f"Hey everyone, I need your help for *2 code reviews* on: *{slack_title}*\n"
+            code_review_message = templates['code_review_intro'].format(title=slack_title) + "\n"
             code_review_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
-            code_review_message += "As always, I am happy to trade reviews :smile:"
+            code_review_message += templates['trade_offer']
 
-            testing_message = f"Hey everyone, I need your help for *2 manual tests* on: *{slack_title}*\n"
+            testing_message = templates['testing_intro'].format(title=slack_title) + "\n"
             testing_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
-            testing_message += "As always, I am happy to trade reviews :smile:"
+            testing_message += templates['trade_offer']
 
-            ready_to_merge_message = f"Hey everyone, this PR is now ready to merge: *{slack_title}*\n"
+            ready_to_merge_message = templates['ready_to_merge_intro'].format(title=slack_title) + "\n"
             ready_to_merge_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
-            ready_to_merge_message += "Thanks for the reviews! :tada:"
+            ready_to_merge_message += templates['thanks']
 
             # Escape only quotes and backslashes for HTML data attribute (preserve Slack formatting)
             escaped_code_message = code_review_message.replace('\\', '\\\\').replace('"', '&quot;')
@@ -1357,9 +1394,10 @@ class OutputFormatter:
             if review_count > 0:
                 info_parts.append(f'<span class="badge badge-reviews">{review_count} review(s)</span>')
 
-            # Requested reviewers
+            # Requested reviewers (show nicknames if available)
             if requested_reviewers:
-                reviewers_str = ', '.join(requested_reviewers)
+                reviewer_display_names = [self._get_display_name(r) for r in requested_reviewers]
+                reviewers_str = ', '.join(reviewer_display_names)
                 info_parts.append(f'<span style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: 600; background: #17a2b8; color: white;">Requested: {reviewers_str}</span>')
 
             if info_parts:
