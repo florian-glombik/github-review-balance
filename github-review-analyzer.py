@@ -168,6 +168,13 @@ def main():
     if filter_non_pr_authors:
         logging.info("Filtering out users who have not opened any PRs")
 
+    # Section collapse settings (default values match current behavior)
+    section_settings_expanded = os.environ.get('SECTION_SETTINGS_EXPANDED', 'true').lower() in ('true', '1', 'yes')
+    section_my_open_prs_expanded = os.environ.get('SECTION_MY_OPEN_PRS_EXPANDED', 'true').lower() in ('true', '1', 'yes')
+    section_review_history_expanded = os.environ.get('SECTION_REVIEW_HISTORY_EXPANDED', 'false').lower() in ('true', '1', 'yes')
+    section_my_prs_for_author_expanded = os.environ.get('SECTION_MY_PRS_FOR_AUTHOR_EXPANDED', 'false').lower() in ('true', '1', 'yes')
+    section_detailed_history_expanded = os.environ.get('SECTION_DETAILED_HISTORY_EXPANDED', 'false').lower() in ('true', '1', 'yes')
+
     # Create analyzer
     analyzer = GitHubReviewAnalyzer(
         username,
@@ -211,7 +218,12 @@ def main():
         'required_project_state': required_project_state,
         'required_project_number': required_project_number,
         'exclude_generated_files': exclude_generated_files,
-        'excluded_file_patterns': excluded_file_patterns
+        'excluded_file_patterns': excluded_file_patterns,
+        'section_settings_expanded': section_settings_expanded,
+        'section_my_open_prs_expanded': section_my_open_prs_expanded,
+        'section_review_history_expanded': section_review_history_expanded,
+        'section_my_prs_for_author_expanded': section_my_prs_for_author_expanded,
+        'section_detailed_history_expanded': section_detailed_history_expanded
     }
 
     output_formatter = OutputFormatter(username, sort_by, show_extended_report, show_overall_statistics, max_review_count_threshold, filter_non_pr_authors, config)

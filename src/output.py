@@ -40,6 +40,13 @@ class OutputFormatter:
         self.filter_non_pr_authors = filter_non_pr_authors
         self.config = config or {}
 
+        # Section collapse settings (defaults match current behavior)
+        self.section_settings_expanded = self.config.get('section_settings_expanded', True)
+        self.section_my_open_prs_expanded = self.config.get('section_my_open_prs_expanded', True)
+        self.section_review_history_expanded = self.config.get('section_review_history_expanded', False)
+        self.section_my_prs_for_author_expanded = self.config.get('section_my_prs_for_author_expanded', False)
+        self.section_detailed_history_expanded = self.config.get('section_detailed_history_expanded', False)
+
     def print_summary(
         self,
         reviewed_by_me: Dict[str, ReviewStats],
@@ -1194,7 +1201,8 @@ class OutputFormatter:
 
     def _generate_settings_html(self) -> str:
         """Generate HTML for settings section."""
-        html = '<details open>\n'
+        open_attr = ' open' if self.section_settings_expanded else ''
+        html = f'<details{open_attr}>\n'
         html += '<summary>Analysis Settings</summary>\n'
         html += '<div class="settings-section">\n'
         html += '<div class="settings-grid">\n'
@@ -1274,8 +1282,9 @@ class OutputFormatter:
 
     def _generate_my_open_prs_html(self, my_open_prs: list) -> str:
         """Generate HTML for my open PRs section with copyable messages per PR."""
+        open_attr = ' open' if self.section_my_open_prs_expanded else ''
         html = '<div class="my-prs-section">\n'
-        html += '<details open>\n'
+        html += f'<details{open_attr}>\n'
         html += '<summary class="my-prs-summary">My Open PRs Needing Review</summary>\n'
         html += f'<p>You have <strong>{len(my_open_prs)}</strong> open PR(s). Click either button to copy a Slack-ready message requesting code review or testing.</p>\n'
         html += '<p style="background: #fff3cd; border: 1px solid #ffc107; padding: 10px; border-radius: 4px; margin: 10px 0;"><strong>⚠️ Important:</strong> Press <kbd>CMD/CTRL + Shift + F</kbd> before sending the message in Slack to apply formatting!</p>\n'
@@ -1640,7 +1649,8 @@ class OutputFormatter:
                 their_reviews = reviewed_by_others.get(author)
 
                 if my_reviews or their_reviews:
-                    html += '<details style="margin-top: 20px;">\n'
+                    review_history_open = ' open' if self.section_review_history_expanded else ''
+                    html += f'<details{review_history_open} style="margin-top: 20px;">\n'
                     html += f'<summary style="cursor: pointer; font-weight: 600; color: #667eea;">Review History with {author}</summary>\n'
                     html += '<div style="padding: 15px; background: #fafafa; border-radius: 4px; margin-top: 10px;">\n'
 
@@ -1694,8 +1704,9 @@ class OutputFormatter:
 
                 # Add section for my PRs that this user can review
                 if my_open_prs:
+                    my_prs_for_author_open = ' open' if self.section_my_prs_for_author_expanded else ''
                     html += '<div style="margin-top: 20px; padding-top: 15px; border-top: 2px solid #ddd;">\n'
-                    html += '<details>\n'
+                    html += f'<details{my_prs_for_author_open}>\n'
                     html += f'<summary class="user-prs-summary">My PRs for {author} to Review ({len(my_open_prs)})</summary>\n'
                     html += '<p style="font-size: 0.9em; color: #666; margin-bottom: 10px; margin-top: 10px;">Click either button to copy a personalized Slack-ready message requesting code review or testing</p>\n'
                     html += '<p style="background: #fff3cd; border: 1px solid #ffc107; padding: 8px; border-radius: 4px; margin: 10px 0; font-size: 0.85em;"><strong>⚠️ Important:</strong> Press <kbd>CMD/CTRL + Shift + F</kbd> before sending the message in Slack to apply formatting!</p>\n'
@@ -1823,7 +1834,8 @@ class OutputFormatter:
                     their_reviews = reviewed_by_others.get(user)
 
                     if my_reviews or their_reviews:
-                        html += '<details style="margin-top: 10px;">\n'
+                        review_history_open = ' open' if self.section_review_history_expanded else ''
+                        html += f'<details{review_history_open} style="margin-top: 10px;">\n'
                         html += f'<summary style="cursor: pointer; font-weight: 600; color: #667eea;">Review History with {user}</summary>\n'
                         html += '<div style="padding: 15px; background: #fafafa; border-radius: 4px; margin-top: 10px;">\n'
 
@@ -1956,7 +1968,8 @@ class OutputFormatter:
         pr_authors: Set[str] = None
     ) -> str:
         """Generate HTML for detailed review history."""
-        html = '<details>\n'
+        detailed_history_open = ' open' if self.section_detailed_history_expanded else ''
+        html = f'<details{detailed_history_open}>\n'
         html += '<summary>Detailed Review History</summary>\n'
 
         # Filter users based on filter_non_pr_authors flag
