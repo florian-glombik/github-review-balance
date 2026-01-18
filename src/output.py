@@ -1394,10 +1394,9 @@ class OutputFormatter:
             if review_count > 0:
                 info_parts.append(f'<span class="badge badge-reviews">{review_count} review(s)</span>')
 
-            # Requested reviewers (show nicknames if available)
+            # Requested reviewers
             if requested_reviewers:
-                reviewer_display_names = [self._get_display_name(r) for r in requested_reviewers]
-                reviewers_str = ', '.join(reviewer_display_names)
+                reviewers_str = ', '.join(requested_reviewers)
                 info_parts.append(f'<span style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: 600; background: #17a2b8; color: white;">Requested: {reviewers_str}</span>')
 
             if info_parts:
@@ -1773,11 +1772,12 @@ class OutputFormatter:
                         slack_title = pr_title.replace('`', '')
 
                         # Build message with PR name and URL with line counts directly after
-                        code_review_message = f"Hey {author}, I need your help for *a code review* on: *{slack_title}*\n"
+                        display_name = self._get_display_name(author)
+                        code_review_message = f"Hey {display_name}, I need your help for *a code review* on: *{slack_title}*\n"
                         code_review_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
                         code_review_message += "As always, I am happy to trade reviews :smile:"
 
-                        testing_message = f"Hey {author}, I need your help for *a manual test* on: *{slack_title}*\n"
+                        testing_message = f"Hey {display_name}, I need your help for *a manual test* on: *{slack_title}*\n"
                         testing_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
                         testing_message += "As always, I am happy to trade reviews :smile:"
 
@@ -1951,11 +1951,12 @@ class OutputFormatter:
                             has_change_requests = pr.get('has_change_requests', False)
 
                             slack_title = pr_title.replace('`', '')
-                            code_review_message = f"Hey {user}, I need your help for *a code review* on: *{slack_title}*\n"
+                            display_name = self._get_display_name(user)
+                            code_review_message = f"Hey {display_name}, I need your help for *a code review* on: *{slack_title}*\n"
                             code_review_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
                             code_review_message += "As always, I am happy to trade reviews :smile:"
 
-                            testing_message = f"Hey {user}, I need your help for *a manual test* on: *{slack_title}*\n"
+                            testing_message = f"Hey {display_name}, I need your help for *a manual test* on: *{slack_title}*\n"
                             testing_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
                             testing_message += "As always, I am happy to trade reviews :smile:"
 
