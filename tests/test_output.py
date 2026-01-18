@@ -1084,5 +1084,310 @@ class TestFilterNonPRAuthors:
         assert formatter3.filter_non_pr_authors is False
 
 
+class TestNicknameInCopyableMessages:
+    """Test cases for nickname usage in copy-pastable Slack messages."""
+
+    class MockUserConfig:
+        """Mock UserConfig for testing nickname functionality."""
+
+        def __init__(self, nicknames: dict = None):
+            self.nicknames = nicknames or {}
+
+        def get_nickname(self, github_username: str) -> str:
+            """Return nickname if set, otherwise return github username."""
+            return self.nicknames.get(github_username, github_username)
+
+        def get_language(self, github_username: str) -> str:
+            """Return default language."""
+            return 'english'
+
+    def test_nickname_used_in_personalized_messages(self):
+        """Test that nicknames are used in copy-pastable messages for my PRs section."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        # alice has review history
+        reviewed_by_me['alice'].prs_reviewed = 2
+        reviewed_by_me['alice'].lines_reviewed = 200
+
+        # alice has an open PR (to show her section)
+        open_prs_by_author = {
+            'alice': [{
+                'number': 123,
+                'title': 'Fix bug',
+                'url': 'https://github.com/test/repo/pull/123',
+                'repo': 'test/repo',
+                'additions': 50,
+                'deletions': 20,
+                'review_count': 0,
+                'requested_my_review': False,
+                'requested_reviewers': [],
+                'labels': [],
+                'has_change_requests': False
+            }]
+        }
+
+        # My open PRs that alice could review (this triggers the personalized messages)
+        my_open_prs = [{
+            'number': 456,
+            'title': 'My PR',
+            'url': 'https://github.com/test/repo/pull/456',
+            'repo': 'test/repo',
+            'additions': 30,
+            'deletions': 10,
+            'review_count': 0,
+            'requested_reviewers': [],
+            'labels': [],
+            'has_change_requests': False
+        }]
+
+        # Create mock user config with nickname for alice
+        mock_config = self.MockUserConfig(nicknames={'alice': 'Alice Smith'})
+
+        formatter = OutputFormatter('test_user', user_config=mock_config)
+        html = formatter.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author, my_open_prs=my_open_prs)
+
+        # The message should contain the nickname "Alice Smith" instead of "alice"
+        assert 'Hey Alice Smith, I need your help' in html
+        # Should NOT contain "Hey alice" (the GitHub username)
+        assert 'Hey alice, I need your help' not in html
+
+    def test_nickname_used_in_my_prs_for_user_messages(self):
+        """Test that nicknames are used in copy-pastable messages for my PRs section."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        # bob has review history
+        reviewed_by_me['bob'].prs_reviewed = 1
+        reviewed_by_me['bob'].lines_reviewed = 100
+        reviewed_by_others['bob'].prs_reviewed = 2
+        reviewed_by_others['bob'].lines_reviewed = 300
+
+        # bob has an open PR (to show sections)
+        open_prs_by_author = {
+            'bob': [{
+                'number': 456,
+                'title': 'Add feature',
+                'url': 'https://github.com/test/repo/pull/456',
+                'repo': 'test/repo',
+                'additions': 100,
+                'deletions': 30,
+                'review_count': 0,
+                'requested_my_review': False,
+                'requested_reviewers': [],
+                'labels': [],
+                'has_change_requests': False
+            }]
+        }
+
+        # My open PRs that bob could review
+        my_open_prs = [{
+            'number': 789,
+            'title': 'My PR',
+            'url': 'https://github.com/test/repo/pull/789',
+            'repo': 'test/repo',
+            'additions': 50,
+            'deletions': 10,
+            'review_count': 0,
+            'requested_reviewers': [],
+            'labels': [],
+            'has_change_requests': False
+        }]
+
+        # Create mock user config with nickname for bob
+        mock_config = self.MockUserConfig(nicknames={'bob': 'Bob Jones'})
+
+        formatter = OutputFormatter('test_user', user_config=mock_config)
+        html = formatter.generate_html(
+            reviewed_by_me, reviewed_by_others, open_prs_by_author, my_open_prs=my_open_prs
+        )
+
+        # The message should contain the nickname "Bob Jones" instead of "bob"
+        assert 'Hey Bob Jones, I need your help' in html
+        # Should NOT contain "Hey bob" (the GitHub username)
+        assert 'Hey bob, I need your help' not in html
+
+    def test_github_username_used_when_no_nickname_set(self):
+        """Test that GitHub username is used when no nickname is configured."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        reviewed_by_me['charlie'].prs_reviewed = 1
+        reviewed_by_me['charlie'].lines_reviewed = 100
+
+        open_prs_by_author = {
+            'charlie': [{
+                'number': 111,
+                'title': 'Some PR',
+                'url': 'https://github.com/test/repo/pull/111',
+                'repo': 'test/repo',
+                'additions': 20,
+                'deletions': 5,
+                'review_count': 0,
+                'requested_my_review': False,
+                'requested_reviewers': [],
+                'labels': [],
+                'has_change_requests': False
+            }]
+        }
+
+        # My open PRs that charlie could review (this triggers the personalized messages)
+        my_open_prs = [{
+            'number': 222,
+            'title': 'My PR',
+            'url': 'https://github.com/test/repo/pull/222',
+            'repo': 'test/repo',
+            'additions': 30,
+            'deletions': 10,
+            'review_count': 0,
+            'requested_reviewers': [],
+            'labels': [],
+            'has_change_requests': False
+        }]
+
+        # Create mock user config WITHOUT nickname for charlie
+        mock_config = self.MockUserConfig(nicknames={})
+
+        formatter = OutputFormatter('test_user', user_config=mock_config)
+        html = formatter.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author, my_open_prs=my_open_prs)
+
+        # The message should use the GitHub username "charlie"
+        assert 'Hey charlie, I need your help' in html
+
+    def test_github_username_used_when_no_user_config(self):
+        """Test that GitHub username is used when user_config is None."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        reviewed_by_me['dave'].prs_reviewed = 1
+        reviewed_by_me['dave'].lines_reviewed = 100
+
+        open_prs_by_author = {
+            'dave': [{
+                'number': 222,
+                'title': 'Another PR',
+                'url': 'https://github.com/test/repo/pull/222',
+                'repo': 'test/repo',
+                'additions': 30,
+                'deletions': 10,
+                'review_count': 0,
+                'requested_my_review': False,
+                'requested_reviewers': [],
+                'labels': [],
+                'has_change_requests': False
+            }]
+        }
+
+        # My open PRs that dave could review (this triggers the personalized messages)
+        my_open_prs = [{
+            'number': 333,
+            'title': 'My PR',
+            'url': 'https://github.com/test/repo/pull/333',
+            'repo': 'test/repo',
+            'additions': 20,
+            'deletions': 5,
+            'review_count': 0,
+            'requested_reviewers': [],
+            'labels': [],
+            'has_change_requests': False
+        }]
+
+        # No user_config at all
+        formatter = OutputFormatter('test_user', user_config=None)
+        html = formatter.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author, my_open_prs=my_open_prs)
+
+        # The message should use the GitHub username "dave"
+        assert 'Hey dave, I need your help' in html
+
+    def test_multiple_users_with_different_nicknames(self):
+        """Test that each user gets their correct nickname in messages."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        # Multiple users with review history
+        reviewed_by_me['alice'].prs_reviewed = 1
+        reviewed_by_me['alice'].lines_reviewed = 100
+        reviewed_by_me['bob'].prs_reviewed = 1
+        reviewed_by_me['bob'].lines_reviewed = 100
+        reviewed_by_me['charlie'].prs_reviewed = 1
+        reviewed_by_me['charlie'].lines_reviewed = 100
+
+        # Each user has an open PR
+        open_prs_by_author = {
+            'alice': [{
+                'number': 1,
+                'title': 'PR 1',
+                'url': 'https://github.com/test/repo/pull/1',
+                'repo': 'test/repo',
+                'additions': 10,
+                'deletions': 5,
+                'review_count': 0,
+                'requested_my_review': False,
+                'requested_reviewers': [],
+                'labels': [],
+                'has_change_requests': False
+            }],
+            'bob': [{
+                'number': 2,
+                'title': 'PR 2',
+                'url': 'https://github.com/test/repo/pull/2',
+                'repo': 'test/repo',
+                'additions': 10,
+                'deletions': 5,
+                'review_count': 0,
+                'requested_my_review': False,
+                'requested_reviewers': [],
+                'labels': [],
+                'has_change_requests': False
+            }],
+            'charlie': [{
+                'number': 3,
+                'title': 'PR 3',
+                'url': 'https://github.com/test/repo/pull/3',
+                'repo': 'test/repo',
+                'additions': 10,
+                'deletions': 5,
+                'review_count': 0,
+                'requested_my_review': False,
+                'requested_reviewers': [],
+                'labels': [],
+                'has_change_requests': False
+            }]
+        }
+
+        # My open PRs that users could review (this triggers the personalized messages)
+        my_open_prs = [{
+            'number': 100,
+            'title': 'My PR',
+            'url': 'https://github.com/test/repo/pull/100',
+            'repo': 'test/repo',
+            'additions': 20,
+            'deletions': 5,
+            'review_count': 0,
+            'requested_reviewers': [],
+            'labels': [],
+            'has_change_requests': False
+        }]
+
+        # alice has nickname, bob has nickname, charlie has no nickname
+        mock_config = self.MockUserConfig(nicknames={
+            'alice': 'Alice A.',
+            'bob': 'Bobby B.'
+            # charlie has no nickname
+        })
+
+        formatter = OutputFormatter('test_user', user_config=mock_config)
+        html = formatter.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author, my_open_prs=my_open_prs)
+
+        # Each user should have their correct name in messages
+        assert 'Hey Alice A., I need your help' in html
+        assert 'Hey Bobby B., I need your help' in html
+        assert 'Hey charlie, I need your help' in html
+
+        # GitHub usernames should NOT appear for users with nicknames
+        assert 'Hey alice, I need your help' not in html
+        assert 'Hey bob, I need your help' not in html
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
