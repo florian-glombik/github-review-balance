@@ -72,9 +72,9 @@ class OutputFormatter:
                 'thanks': "Danke fuer die Reviews! :tada:",
                 'pr_summary_header': "Hey, hier ist eine Zusammenfassung meiner offenen PRs:",
                 'pr_summary_in_review': "In Review",
-                'pr_summary_ready_to_merge': "Bereit zum Mergen",
-                'pr_summary_in_progress': "In Bearbeitung",
-                'pr_summary_footer': "Ich freue mich ueber jede Hilfe! :smile:"
+                'pr_summary_ready_to_merge': "Ready to Merge",
+                'pr_summary_in_progress': "In Progress",
+                'pr_summary_footer': ""
             }
         else:  # english (default)
             return {
@@ -1499,7 +1499,7 @@ class OutputFormatter:
             (in_progress, 'pr_summary_in_progress')
         ]:
             if prs:
-                message += f"*{templates[template_key]}:*\n"
+                message += f"`{templates[template_key]}`\n"
                 for pr in prs:
                     slack_title = pr['title'].replace('`', '')
                     message += f"• {slack_title} - {pr['url']} (+{pr['additions']:,}/-{pr['deletions']:,} lines)\n"
