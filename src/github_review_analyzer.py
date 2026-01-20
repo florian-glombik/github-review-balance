@@ -1129,8 +1129,12 @@ class GitHubReviewAnalyzer:
             'changes_requested': changes_requested
         }
 
-    def get_my_open_prs(self) -> List[Dict]:
-        """Fetch my open PRs from analyzed repositories that are ready for review.
+    def get_my_open_prs(self, apply_label_filter: bool = True) -> List[Dict]:
+        """Fetch my open PRs from analyzed repositories.
+
+        Args:
+            apply_label_filter: If True, filter PRs by required_pr_label or required_project_state.
+                               If False, return all open PRs (for PR Summary).
 
         Returns:
             List of my open PRs with details
@@ -1148,9 +1152,9 @@ class GitHubReviewAnalyzer:
                     'direction': 'desc'
                 }, use_cache=False)
 
-                # Batch fetch project states (if needed)
+                # Batch fetch project states (always fetch for PR summary categorization)
                 project_states = {}
-                if self.required_project_state and open_prs:
+                if open_prs:
                     project_states = self._batch_fetch_project_states(repo, open_prs)
 
                 for pr in open_prs:
@@ -1160,12 +1164,12 @@ class GitHubReviewAnalyzer:
                     if pr_author != self.username:
                         continue
 
-                    # Skip draft PRs
-                    if pr.get('draft', False):
+                    # Skip draft PRs (only when filtering is enabled; include drafts in PR Summary)
+                    if apply_label_filter and pr.get('draft', False):
                         continue
 
-                    # Check for required label or project state (if specified)
-                    if self.required_pr_label or self.required_project_state:
+                    # Check for required label or project state (if specified and filtering is enabled)
+                    if apply_label_filter and (self.required_pr_label or self.required_project_state):
                         pr_labels = [label['name'] for label in pr.get('labels', [])]
 
                         has_required_label = self.required_pr_label and self.required_pr_label in pr_labels
@@ -1286,7 +1290,8 @@ class GitHubReviewAnalyzer:
                             'review_count': review_count,
                             'requested_reviewers': requested_reviewers,
                             'labels': labels,
-                            'has_change_requests': has_change_requests
+                            'has_change_requests': has_change_requests,
+                            'project_states': project_states.get(pr_number, [])
                         })
                     except Exception as e:
                         logging.warning(f"Error fetching PR details for #{pr_number}: {e}")

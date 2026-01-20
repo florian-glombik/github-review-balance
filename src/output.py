@@ -69,7 +69,12 @@ class OutputFormatter:
                 'testing_intro': "Hey, ich brauche eure Hilfe fuer *2 manuelle Tests* fuer: *{title}*",
                 'ready_to_merge_intro': "Hey, diese PR ist jetzt bereit zum Mergen: *{title}*",
                 'trade_offer': "Wie immer tausche ich gerne Reviews :smile:",
-                'thanks': "Danke fuer die Reviews! :tada:"
+                'thanks': "Danke fuer die Reviews! :tada:",
+                'pr_summary_header': "Hey, hier ist eine Zusammenfassung meiner offenen PRs:",
+                'pr_summary_in_review': "In Review",
+                'pr_summary_ready_to_merge': "Bereit zum Mergen",
+                'pr_summary_in_progress': "In Bearbeitung",
+                'pr_summary_footer': "Ich freue mich ueber jede Hilfe! :smile:"
             }
         else:  # english (default)
             return {
@@ -77,7 +82,12 @@ class OutputFormatter:
                 'testing_intro': "Hey everyone, I need your help for *2 manual tests* on: *{title}*",
                 'ready_to_merge_intro': "Hey everyone, this PR is now ready to merge: *{title}*",
                 'trade_offer': "As always, I am happy to trade reviews :smile:",
-                'thanks': "Thanks for the reviews! :tada:"
+                'thanks': "Thanks for the reviews! :tada:",
+                'pr_summary_header': "Hey everyone, here is a summary of my open PRs:",
+                'pr_summary_in_review': "In Review",
+                'pr_summary_ready_to_merge': "Ready to Merge",
+                'pr_summary_in_progress': "In Progress",
+                'pr_summary_footer': "Any help is appreciated! :smile:"
             }
 
     def print_summary(
@@ -464,7 +474,8 @@ class OutputFormatter:
         reviewed_by_others: Dict[str, ReviewStats],
         open_prs_by_author: Dict[str, list],
         pr_authors: Set[str] = None,
-        my_open_prs: list = None
+        my_open_prs: list = None,
+        all_my_open_prs: list = None
     ) -> str:
         """Generate HTML report of review statistics.
 
@@ -473,7 +484,8 @@ class OutputFormatter:
             reviewed_by_others: Statistics for PRs others reviewed
             open_prs_by_author: Open PRs grouped by author
             pr_authors: Set of all users who have authored PRs in the repositories
-            my_open_prs: List of my open PRs that need review
+            my_open_prs: List of my open PRs that need review (filtered)
+            all_my_open_prs: List of all my open PRs (unfiltered, for PR Summary)
 
         Returns:
             HTML string containing the full report
@@ -491,7 +503,7 @@ class OutputFormatter:
 
         # My open PRs section
         if my_open_prs:
-            html_parts.append(self._generate_my_open_prs_html(my_open_prs))
+            html_parts.append(self._generate_my_open_prs_html(my_open_prs, all_my_open_prs))
 
         # Review balance table
         html_parts.append(self._generate_review_balance_html(all_users, reviewed_by_me, reviewed_by_others, pr_authors, open_prs_by_author, my_open_prs))
@@ -1317,8 +1329,13 @@ class OutputFormatter:
         html += '</div>\n</div>\n</details>\n'
         return html
 
-    def _generate_my_open_prs_html(self, my_open_prs: list) -> str:
-        """Generate HTML for my open PRs section with copyable messages per PR."""
+    def _generate_my_open_prs_html(self, my_open_prs: list, all_my_open_prs: list = None) -> str:
+        """Generate HTML for my open PRs section with copyable messages per PR.
+
+        Args:
+            my_open_prs: Filtered list of my open PRs that need review
+            all_my_open_prs: Unfiltered list of all my open PRs (for PR Summary)
+        """
         open_attr = ' open' if self.section_my_open_prs_expanded else ''
         html = '<div class="my-prs-section">\n'
         html += f'<details{open_attr}>\n'
@@ -1335,6 +1352,25 @@ class OutputFormatter:
 
         html += f'<p>You have <strong>{len(my_open_prs)}</strong> open PR(s). Click either button to copy a Slack-ready message requesting code review or testing.</p>\n'
         html += '<p style="background: #fff3cd; border: 1px solid #ffc107; padding: 10px; border-radius: 4px; margin: 10px 0;"><strong>⚠️ Important:</strong> Press <kbd>CMD/CTRL + Shift + F</kbd> before sending the message in Slack to apply formatting!</p>\n'
+
+        # Generate and add PR Summary button (uses all open PRs, not just filtered ones)
+        prs_for_summary = all_my_open_prs if all_my_open_prs else my_open_prs
+        if prs_for_summary:
+            pr_summary_message = self._generate_pr_summary_message(prs_for_summary)
+            escaped_summary_message = pr_summary_message.replace('\\', '\\\\').replace('"', '&quot;')
+
+            html += '<div style="margin: 15px 0;">\n'
+            html += f'<button class="pr-copy-button" data-message="{escaped_summary_message}" '
+            html += 'style="display: inline-flex; align-items: center; gap: 8px; '
+            html += 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); '
+            html += 'color: white; border: none; padding: 12px 24px; border-radius: 6px; '
+            html += 'cursor: pointer; font-size: 1em; font-weight: 600; '
+            html += 'box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);">'
+            html += '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">'
+            html += '<path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/>'
+            html += '<path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/>'
+            html += '</svg>PR Summary</button>\n'
+            html += '</div>\n'
 
         for pr in my_open_prs:
             repo_name = pr['repo']
@@ -1427,6 +1463,50 @@ class OutputFormatter:
         html += '</div>\n'
 
         return html
+
+    def _generate_pr_summary_message(self, my_open_prs: list) -> str:
+        """Generate a Slack message summarizing all open PRs categorized by status."""
+        user_language = self._get_user_language(self.username)
+        templates = self._get_message_templates(user_language)
+
+        in_review = []
+        ready_to_merge = []
+        in_progress = []
+
+        for pr in my_open_prs:
+            labels = [label.lower() for label in pr.get('labels', [])]
+            project_states = [state.lower() for state in pr.get('project_states', [])]
+
+            # Ready to merge: label "ready to merge" OR project state "developer approved"/"maintainer approved"
+            if ('ready to merge' in labels or
+                'developer approved' in project_states or
+                'maintainer approved' in project_states):
+                ready_to_merge.append(pr)
+            # In review: label "ready for review" OR project state "ready for review"
+            elif ('ready for review' in labels or
+                  'ready for review' in project_states):
+                in_review.append(pr)
+            # Default: in progress
+            else:
+                in_progress.append(pr)
+
+        # Build message with sections for each category
+        message = templates['pr_summary_header'] + "\n\n"
+
+        for prs, template_key in [
+            (in_review, 'pr_summary_in_review'),
+            (ready_to_merge, 'pr_summary_ready_to_merge'),
+            (in_progress, 'pr_summary_in_progress')
+        ]:
+            if prs:
+                message += f"*{templates[template_key]}:*\n"
+                for pr in prs:
+                    slack_title = pr['title'].replace('`', '')
+                    message += f"• {slack_title} - {pr['url']} (+{pr['additions']:,}/-{pr['deletions']:,} lines)\n"
+                message += "\n"
+
+        message += templates['pr_summary_footer']
+        return message
 
     def _generate_empty_html(self) -> str:
         """Generate HTML for when there's no data."""
@@ -2148,6 +2228,7 @@ class OutputFormatter:
         open_prs_by_author: Dict[str, list],
         pr_authors: Set[str] = None,
         my_open_prs: list = None,
+        all_my_open_prs: list = None,
         output_dir: str = None
     ) -> str:
         """Generate and save HTML report to file.
@@ -2157,13 +2238,14 @@ class OutputFormatter:
             reviewed_by_others: Statistics for PRs others reviewed
             open_prs_by_author: Open PRs grouped by author
             pr_authors: Set of all users who have authored PRs in the repositories
-            my_open_prs: List of my open PRs that need review
+            my_open_prs: List of my open PRs that need review (filtered)
+            all_my_open_prs: List of all my open PRs (unfiltered, for PR Summary)
             output_dir: Directory to save the HTML file (defaults to current directory)
 
         Returns:
             Absolute path to the saved HTML file
         """
-        html_content = self.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author, pr_authors, my_open_prs)
+        html_content = self.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author, pr_authors, my_open_prs, all_my_open_prs)
 
         # Determine output directory - default to 'reports' folder
         if output_dir is None:

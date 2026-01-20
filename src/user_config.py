@@ -106,8 +106,8 @@ class UserConfig:
             The language preference ('english' or 'german'), defaults to 'english'
         """
         if github_username in self.users:
-            return self.users[github_username].get('language', 'english')
-        return 'english'
+            return self.users[github_username].get('language', 'german')
+        return 'german'
 
     def set_nickname(self, github_username: str, nickname: str) -> None:
         """

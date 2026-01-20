@@ -217,8 +217,9 @@ def main():
     logging.info("Analysis complete, generating summary...")
     open_prs_by_author = analyzer.get_open_prs_needing_review()
 
-    # Get my open PRs
-    my_open_prs = analyzer.get_my_open_prs()
+    # Get my open PRs (filtered for display, all for PR Summary)
+    my_open_prs = analyzer.get_my_open_prs(apply_label_filter=True)
+    all_my_open_prs = analyzer.get_my_open_prs(apply_label_filter=False)
 
     # Create config dictionary for the output formatter
     config = {
@@ -252,7 +253,8 @@ def main():
         analyzer.reviewed_by_others,
         open_prs_by_author,
         analyzer.pr_authors,
-        my_open_prs
+        my_open_prs,
+        all_my_open_prs
     )
 
     print("\n" + "="*80)
