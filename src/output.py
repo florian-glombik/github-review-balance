@@ -49,6 +49,10 @@ class OutputFormatter:
         self.section_my_prs_for_author_expanded = self.config.get('section_my_prs_for_author_expanded', False)
         self.section_detailed_history_expanded = self.config.get('section_detailed_history_expanded', False)
 
+        # Language settings for messages
+        self.pr_summary_language = self.config.get('pr_summary_language', 'english')
+        self.my_prs_language = self.config.get('my_prs_language', 'english')
+
     def _get_display_name(self, github_username: str) -> str:
         """Get the display name for a user (nickname if set, otherwise GitHub username)."""
         if self.user_config:
@@ -74,7 +78,11 @@ class OutputFormatter:
                 'pr_summary_in_review': "In Review",
                 'pr_summary_ready_to_merge': "Ready to Merge",
                 'pr_summary_in_progress': "In Progress",
-                'pr_summary_footer': ""
+                'pr_summary_footer': "",
+                # Personalized messages for "My PRs for [author]"
+                'personalized_code_review': "Hey {display_name}, ich brauche deine Hilfe fuer *ein Code Review* fuer: *{title}*",
+                'personalized_testing': "Hey {display_name}, ich brauche deine Hilfe fuer *einen manuellen Test* fuer: *{title}*",
+                'personalized_trade_offer': "Wie immer tausche ich gerne Reviews :smile:"
             }
         else:  # english (default)
             return {
@@ -87,7 +95,11 @@ class OutputFormatter:
                 'pr_summary_in_review': "In Review",
                 'pr_summary_ready_to_merge': "Ready to Merge",
                 'pr_summary_in_progress': "In Progress",
-                'pr_summary_footer': "Any help is appreciated! :smile:"
+                'pr_summary_footer': "Any help is appreciated! :smile:",
+                # Personalized messages for "My PRs for [author]"
+                'personalized_code_review': "Hey {display_name}, I need your help for *a code review* on: *{title}*",
+                'personalized_testing': "Hey {display_name}, I need your help for *a manual test* on: *{title}*",
+                'personalized_trade_offer': "As always, I am happy to trade reviews :smile:"
             }
 
     def print_summary(
@@ -1392,9 +1404,8 @@ class OutputFormatter:
             # Remove backticks from title
             slack_title = pr_title.replace('`', '')
 
-            # Get message templates based on user's language preference
-            user_language = self._get_user_language(self.username)
-            templates = self._get_message_templates(user_language)
+            # Get message templates based on PR summary language setting
+            templates = self._get_message_templates(self.pr_summary_language)
 
             # Build a message with PR name and URL with line counts directly after
             code_review_message = templates['code_review_intro'].format(title=slack_title) + "\n"
@@ -1466,8 +1477,7 @@ class OutputFormatter:
 
     def _generate_pr_summary_message(self, my_open_prs: list) -> str:
         """Generate a Slack message summarizing all open PRs categorized by status."""
-        user_language = self._get_user_language(self.username)
-        templates = self._get_message_templates(user_language)
+        templates = self._get_message_templates(self.pr_summary_language)
 
         in_review = []
         ready_to_merge = []
@@ -1861,15 +1871,18 @@ class OutputFormatter:
                         # Remove backticks from title
                         slack_title = pr_title.replace('`', '')
 
+                        # Get message templates based on My PRs language setting
+                        my_prs_templates = self._get_message_templates(self.my_prs_language)
+
                         # Build message with PR name and URL with line counts directly after
                         display_name = self._get_display_name(author)
-                        code_review_message = f"Hey {display_name}, I need your help for *a code review* on: *{slack_title}*\n"
+                        code_review_message = my_prs_templates['personalized_code_review'].format(display_name=display_name, title=slack_title) + "\n"
                         code_review_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
-                        code_review_message += "As always, I am happy to trade reviews :smile:"
+                        code_review_message += my_prs_templates['personalized_trade_offer']
 
-                        testing_message = f"Hey {display_name}, I need your help for *a manual test* on: *{slack_title}*\n"
+                        testing_message = my_prs_templates['personalized_testing'].format(display_name=display_name, title=slack_title) + "\n"
                         testing_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
-                        testing_message += "As always, I am happy to trade reviews :smile:"
+                        testing_message += my_prs_templates['personalized_trade_offer']
 
                         # Escape only quotes and backslashes for HTML data attribute (preserve Slack formatting)
                         escaped_code_message = code_review_message.replace('\\', '\\\\').replace('"', '&quot;')

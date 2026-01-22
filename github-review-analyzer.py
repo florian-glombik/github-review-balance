@@ -180,6 +180,17 @@ def main():
     user_config_path = os.environ.get('USER_CONFIG_PATH', 'user_config.json')
     user_config = UserConfig(user_config_path)
 
+    # Language settings
+    pr_summary_language = os.environ.get('PR_SUMMARY_LANGUAGE', 'english').strip().lower()
+    if pr_summary_language not in ('english', 'german'):
+        logging.warning(f"Invalid PR_SUMMARY_LANGUAGE value '{pr_summary_language}', using default: english")
+        pr_summary_language = 'english'
+
+    my_prs_language = os.environ.get('MY_PRS_LANGUAGE', 'english').strip().lower()
+    if my_prs_language not in ('english', 'german'):
+        logging.warning(f"Invalid MY_PRS_LANGUAGE value '{my_prs_language}', using default: english")
+        my_prs_language = 'english'
+
     # Create analyzer
     analyzer = GitHubReviewAnalyzer(
         username,
@@ -235,7 +246,9 @@ def main():
         'section_my_open_prs_expanded': section_my_open_prs_expanded,
         'section_review_history_expanded': section_review_history_expanded,
         'section_my_prs_for_author_expanded': section_my_prs_for_author_expanded,
-        'section_detailed_history_expanded': section_detailed_history_expanded
+        'section_detailed_history_expanded': section_detailed_history_expanded,
+        'pr_summary_language': pr_summary_language,
+        'my_prs_language': my_prs_language
     }
 
     output_formatter = OutputFormatter(username, sort_by, show_extended_report, show_overall_statistics, max_review_count_threshold, filter_non_pr_authors, config, user_config)
