@@ -51,6 +51,7 @@ class OutputFormatter:
 
         # Language settings for messages
         self.pr_summary_language = self.config.get('pr_summary_language', 'english')
+        self.my_open_prs_language = self.config.get('my_open_prs_language', 'english')
         self.my_prs_language = self.config.get('my_prs_language', 'english')
 
     def _get_display_name(self, github_username: str) -> str:
@@ -1404,8 +1405,8 @@ class OutputFormatter:
             # Remove backticks from title
             slack_title = pr_title.replace('`', '')
 
-            # Get message templates based on PR summary language setting
-            templates = self._get_message_templates(self.pr_summary_language)
+            # Get message templates based on My Open PRs language setting
+            templates = self._get_message_templates(self.my_open_prs_language)
 
             # Build a message with PR name and URL with line counts directly after
             code_review_message = templates['code_review_intro'].format(title=slack_title) + "\n"

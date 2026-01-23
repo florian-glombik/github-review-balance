@@ -186,6 +186,11 @@ def main():
         logging.warning(f"Invalid PR_SUMMARY_LANGUAGE value '{pr_summary_language}', using default: english")
         pr_summary_language = 'english'
 
+    my_open_prs_language = os.environ.get('MY_OPEN_PRS_LANGUAGE', 'english').strip().lower()
+    if my_open_prs_language not in ('english', 'german'):
+        logging.warning(f"Invalid MY_OPEN_PRS_LANGUAGE value '{my_open_prs_language}', using default: english")
+        my_open_prs_language = 'english'
+
     my_prs_language = os.environ.get('MY_PRS_LANGUAGE', 'english').strip().lower()
     if my_prs_language not in ('english', 'german'):
         logging.warning(f"Invalid MY_PRS_LANGUAGE value '{my_prs_language}', using default: english")
@@ -248,6 +253,7 @@ def main():
         'section_my_prs_for_author_expanded': section_my_prs_for_author_expanded,
         'section_detailed_history_expanded': section_detailed_history_expanded,
         'pr_summary_language': pr_summary_language,
+        'my_open_prs_language': my_open_prs_language,
         'my_prs_language': my_prs_language
     }
 
