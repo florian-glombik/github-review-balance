@@ -9,7 +9,7 @@ import sys
 import logging
 from dotenv import load_dotenv
 
-from src.github_review_analyzer import GitHubReviewAnalyzer
+from src.analyzer import GitHubReviewAnalyzer
 from src.output import OutputFormatter
 from src.user_config import UserConfig
 

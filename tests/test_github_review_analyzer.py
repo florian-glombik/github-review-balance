@@ -21,7 +21,7 @@ spec.loader.exec_module(github_review_analyzer)
 
 # Import from the new modular structure
 from src.models import ReviewStats
-from src.github_review_analyzer import GitHubReviewAnalyzer
+from src.analyzer import GitHubReviewAnalyzer
 
 
 class TestGitHubReviewAnalyzer:

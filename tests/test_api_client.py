@@ -5,7 +5,7 @@ Unit tests for API client functionality
 import pytest
 import requests
 from unittest.mock import Mock, patch
-from src.github_review_analyzer import GitHubReviewAnalyzer
+from src.analyzer import GitHubReviewAnalyzer
 
 
 class TestAPIErrorHandling:

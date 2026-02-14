@@ -6,7 +6,7 @@ import pytest
 import os
 import tempfile
 from datetime import datetime, timedelta
-from src.github_review_analyzer import GitHubReviewAnalyzer
+from src.analyzer import GitHubReviewAnalyzer
 
 
 class TestCacheFunctionality:

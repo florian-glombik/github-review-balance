@@ -4,7 +4,7 @@ from .models import ReviewStats
 from .api_client import GitHubAPIClient
 from .cache import CacheManager
 from .file_filters import FileFilter, DEFAULT_EXCLUDED_FILE_PATTERNS
-from .github_review_analyzer import GitHubReviewAnalyzer
+from .analyzer import GitHubReviewAnalyzer
 from .output import OutputFormatter
 
 __all__ = [
