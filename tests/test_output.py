@@ -1389,5 +1389,210 @@ class TestNicknameInCopyableMessages:
         assert 'Hey bob, I need your help' not in html
 
 
+class TestPerUserLanguageInPersonalizedMessages:
+    """Test cases for per-user language settings in personalized copy-pastable messages."""
+
+    class MockUserConfig:
+        """Mock UserConfig for testing per-user language preferences."""
+
+        def __init__(self, nicknames: dict = None, languages: dict = None):
+            self.nicknames = nicknames or {}
+            self.languages = languages or {}
+
+        def get_nickname(self, github_username: str) -> str:
+            return self.nicknames.get(github_username, github_username)
+
+        def get_language(self, github_username: str) -> str:
+            return self.languages.get(github_username, 'english')
+
+    def _make_open_pr(self, author, number):
+        return {
+            'number': number,
+            'title': f'PR by {author}',
+            'url': f'https://github.com/test/repo/pull/{number}',
+            'repo': 'test/repo',
+            'additions': 50,
+            'deletions': 20,
+            'review_count': 0,
+            'requested_my_review': False,
+            'requested_reviewers': [],
+            'labels': [],
+            'has_change_requests': False
+        }
+
+    def _make_my_open_pr(self):
+        return {
+            'number': 999,
+            'title': 'My PR',
+            'url': 'https://github.com/test/repo/pull/999',
+            'repo': 'test/repo',
+            'additions': 30,
+            'deletions': 10,
+            'review_count': 0,
+            'requested_reviewers': [],
+            'labels': [],
+            'has_change_requests': False
+        }
+
+    def test_german_user_gets_german_personalized_message(self):
+        """Test that a user with language='german' gets a German personalized message."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+        reviewed_by_me['alice'].prs_reviewed = 1
+        reviewed_by_me['alice'].lines_reviewed = 100
+
+        open_prs_by_author = {'alice': [self._make_open_pr('alice', 123)]}
+        my_open_prs = [self._make_my_open_pr()]
+
+        mock_config = self.MockUserConfig(
+            nicknames={'alice': 'Alice'},
+            languages={'alice': 'german'}
+        )
+
+        formatter = OutputFormatter('test_user', user_config=mock_config)
+        html = formatter.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author, my_open_prs=my_open_prs)
+
+        assert 'Hey Alice, ich brauche deine Hilfe' in html
+        assert 'Hey Alice, I need your help' not in html
+
+    def test_english_user_gets_english_personalized_message(self):
+        """Test that a user with language='english' gets an English personalized message."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+        reviewed_by_me['bob'].prs_reviewed = 1
+        reviewed_by_me['bob'].lines_reviewed = 100
+
+        open_prs_by_author = {'bob': [self._make_open_pr('bob', 456)]}
+        my_open_prs = [self._make_my_open_pr()]
+
+        mock_config = self.MockUserConfig(
+            nicknames={'bob': 'Bob'},
+            languages={'bob': 'english'}
+        )
+
+        formatter = OutputFormatter('test_user', user_config=mock_config)
+        html = formatter.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author, my_open_prs=my_open_prs)
+
+        assert 'Hey Bob, I need your help' in html
+        assert 'Hey Bob, ich brauche deine Hilfe' not in html
+
+    def test_mixed_languages_each_user_gets_own_language(self):
+        """Test that when multiple users have different languages, each gets their own."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        reviewed_by_me['alice'].prs_reviewed = 1
+        reviewed_by_me['alice'].lines_reviewed = 100
+        reviewed_by_me['bob'].prs_reviewed = 1
+        reviewed_by_me['bob'].lines_reviewed = 100
+
+        open_prs_by_author = {
+            'alice': [self._make_open_pr('alice', 1)],
+            'bob': [self._make_open_pr('bob', 2)],
+        }
+        my_open_prs = [self._make_my_open_pr()]
+
+        mock_config = self.MockUserConfig(
+            nicknames={'alice': 'Alice', 'bob': 'Bob'},
+            languages={'alice': 'german', 'bob': 'english'}
+        )
+
+        formatter = OutputFormatter('test_user', user_config=mock_config)
+        html = formatter.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author, my_open_prs=my_open_prs)
+
+        # Alice should get German
+        assert 'Hey Alice, ich brauche deine Hilfe' in html
+        assert 'Hey Alice, I need your help' not in html
+
+        # Bob should get English
+        assert 'Hey Bob, I need your help' in html
+        assert 'Hey Bob, ich brauche deine Hilfe' not in html
+
+    def test_user_language_not_overridden_by_global_my_prs_language(self):
+        """Regression test: per-user language must take precedence over global my_prs_language setting."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+        reviewed_by_me['vivi'].prs_reviewed = 1
+        reviewed_by_me['vivi'].lines_reviewed = 100
+
+        open_prs_by_author = {'vivi': [self._make_open_pr('vivi', 500)]}
+        my_open_prs = [self._make_my_open_pr()]
+
+        mock_config = self.MockUserConfig(
+            nicknames={'vivi': 'Vivi'},
+            languages={'vivi': 'german'}
+        )
+
+        # Global my_prs_language is set to english, but vivi's config says german
+        formatter = OutputFormatter(
+            'test_user',
+            user_config=mock_config,
+            config={'my_prs_language': 'english'}
+        )
+        html = formatter.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author, my_open_prs=my_open_prs)
+
+        # Vivi should get German despite global setting being English
+        assert 'Hey Vivi, ich brauche deine Hilfe' in html
+        assert 'Hey Vivi, I need your help' not in html
+
+    def test_german_language_in_other_collaborators_section(self):
+        """Regression test: per-user language must work in the Other Collaborators section
+        (users with review history but no open PRs)."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        # vivi has review history but NO open PRs -> ends up in "Other Collaborators"
+        reviewed_by_me['vivi'].prs_reviewed = 1
+        reviewed_by_me['vivi'].lines_reviewed = 100
+
+        # No open PRs by vivi - this puts her in "Other Collaborators"
+        open_prs_by_author = {}
+        my_open_prs = [self._make_my_open_pr()]
+
+        mock_config = self.MockUserConfig(
+            nicknames={'vivi': 'Vivi'},
+            languages={'vivi': 'german'}
+        )
+
+        formatter = OutputFormatter('test_user', user_config=mock_config)
+        html = formatter.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author, my_open_prs=my_open_prs)
+
+        # Vivi should get German message even in the Other Collaborators section
+        assert 'Hey Vivi, ich brauche deine Hilfe' in html
+        assert 'Hey Vivi, I need your help' not in html
+
+    def test_mixed_languages_across_both_sections(self):
+        """Test that per-user language works for users in both the main and Other Collaborators sections."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        # alice has review history AND open PRs -> main section
+        reviewed_by_me['alice'].prs_reviewed = 1
+        reviewed_by_me['alice'].lines_reviewed = 100
+        # bob has review history but NO open PRs -> Other Collaborators section
+        reviewed_by_me['bob'].prs_reviewed = 1
+        reviewed_by_me['bob'].lines_reviewed = 100
+
+        open_prs_by_author = {
+            'alice': [self._make_open_pr('alice', 1)],
+            # bob has no open PRs
+        }
+        my_open_prs = [self._make_my_open_pr()]
+
+        mock_config = self.MockUserConfig(
+            nicknames={'alice': 'Alice', 'bob': 'Bob'},
+            languages={'alice': 'english', 'bob': 'german'}
+        )
+
+        formatter = OutputFormatter('test_user', user_config=mock_config)
+        html = formatter.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author, my_open_prs=my_open_prs)
+
+        # Alice (main section) should get English
+        assert 'Hey Alice, I need your help' in html
+        # Bob (Other Collaborators section) should get German
+        assert 'Hey Bob, ich brauche deine Hilfe' in html
+        assert 'Hey Bob, I need your help' not in html
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

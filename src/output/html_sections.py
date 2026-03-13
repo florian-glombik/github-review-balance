@@ -570,8 +570,9 @@ def _generate_open_prs_html(
                     # Remove backticks from title
                     slack_title = pr_title.replace('`', '')
 
-                    # Get message templates based on My PRs language setting
-                    my_prs_templates = self._get_message_templates(self.my_prs_language)
+                    # Get message templates based on user's individual language setting
+                    user_language = self._get_user_language(author)
+                    my_prs_templates = self._get_message_templates(user_language)
 
                     # Build message with PR name and URL with line counts directly after
                     display_name = self._get_display_name(author)
@@ -753,14 +754,19 @@ def _generate_open_prs_html(
                         has_change_requests = pr.get('has_change_requests', False)
 
                         slack_title = pr_title.replace('`', '')
-                        display_name = self._get_display_name(user)
-                        code_review_message = f"Hey {display_name}, I need your help for *a code review* on: *{slack_title}*\n"
-                        code_review_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
-                        code_review_message += "As always, I am happy to trade reviews :smile:"
 
-                        testing_message = f"Hey {display_name}, I need your help for *a manual test* on: *{slack_title}*\n"
+                        # Get message templates based on user's individual language setting
+                        user_language = self._get_user_language(user)
+                        user_templates = self._get_message_templates(user_language)
+
+                        display_name = self._get_display_name(user)
+                        code_review_message = user_templates['personalized_code_review'].format(display_name=display_name, title=slack_title) + "\n"
+                        code_review_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
+                        code_review_message += user_templates['personalized_trade_offer']
+
+                        testing_message = user_templates['personalized_testing'].format(display_name=display_name, title=slack_title) + "\n"
                         testing_message += f"{pr_url} (+{additions:,}/-{deletions:,} lines, ~{total_lines:,} total)\n\n"
-                        testing_message += "As always, I am happy to trade reviews :smile:"
+                        testing_message += user_templates['personalized_trade_offer']
 
                         escaped_code_message = code_review_message.replace('\\', '\\\\').replace('"', '&quot;')
                         escaped_test_message = testing_message.replace('\\', '\\\\').replace('"', '&quot;')
