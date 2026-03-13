@@ -66,7 +66,7 @@ class TestAnalyzeRepositoryMethod:
             'deletions': 50
         }
 
-        def mock_get_paginated(url, params=None, should_continue=None):
+        def mock_get_paginated(url, params=None, use_cache=True, should_continue=None):
             if should_continue:
                 should_continue([merged_pr])
             return [merged_pr]
@@ -94,7 +94,7 @@ class TestAnalyzeRepositoryMethod:
             'labels': []
         }
 
-        def mock_get_paginated(url, params=None, should_continue=None):
+        def mock_get_paginated(url, params=None, use_cache=True, should_continue=None):
             if should_continue:
                 should_continue([old_pr])
             return [old_pr]

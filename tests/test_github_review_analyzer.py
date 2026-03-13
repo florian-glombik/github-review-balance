@@ -1960,7 +1960,7 @@ class TestProjectStateFiltering:
             {'number': 5, 'state': 'closed', 'merged_at': '2025-01-01T00:00:00Z', 'draft': False, 'labels': []},
         ]
 
-        def mock_get_paginated(url, params, should_continue=None):
+        def mock_get_paginated(url, params, use_cache=True, should_continue=None):
             if params.get('state') == 'open':
                 return open_prs
             else:

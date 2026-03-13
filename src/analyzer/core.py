@@ -198,11 +198,13 @@ class GitHubReviewAnalyzer:
                 page_count[0] += 1
                 return True
 
+            # Never cache open PRs list - it changes frequently (new PRs, label changes, etc.)
+            use_cache_for_list = (state != 'open')
             prs = self._get_paginated(url, {
                 'state': state,
                 'sort': 'updated',
                 'direction': 'desc'
-            }, should_continue=count_pages)
+            }, use_cache=use_cache_for_list, should_continue=count_pages)
 
             all_prs.extend(prs)
             total_fetched += len(prs)
