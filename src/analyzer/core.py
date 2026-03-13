@@ -243,7 +243,7 @@ class GitHubReviewAnalyzer:
 from .pr_processing import _process_prs_parallel, _analyze_pr, _fetch_pr_data, _track_reviewer_activity, _update_stats
 from .pr_filtering import _filter_prs, _batch_prefetch_filtered_line_counts, _get_filtered_line_counts
 from .open_prs import get_open_prs_needing_review, _process_open_prs_parallel, _check_and_create_pr_info, _has_reviewed_pr, _create_pr_info
-from .my_prs import get_my_open_prs
+from .my_prs import get_my_open_prs, _process_single_my_pr
 from .project_states import _batch_fetch_project_states
 
 # Attach methods to class
@@ -261,4 +261,5 @@ GitHubReviewAnalyzer._check_and_create_pr_info = _check_and_create_pr_info
 GitHubReviewAnalyzer._has_reviewed_pr = _has_reviewed_pr
 GitHubReviewAnalyzer._create_pr_info = _create_pr_info
 GitHubReviewAnalyzer.get_my_open_prs = get_my_open_prs
+GitHubReviewAnalyzer._process_single_my_pr = _process_single_my_pr
 GitHubReviewAnalyzer._batch_fetch_project_states = _batch_fetch_project_states

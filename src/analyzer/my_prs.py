@@ -19,7 +19,10 @@ def get_my_open_prs(self, apply_label_filter: bool = True) -> List[Dict]:
     my_prs = []
 
     print("\nFetching my open PRs...")
-    for repo in self.repositories:
+
+    def _process_repo(repo):
+        """Fetch and process my open PRs from a single repository."""
+        repo_prs = []
         url = f"https://api.github.com/repos/{repo}/pulls"
 
         try:
@@ -34,6 +37,8 @@ def get_my_open_prs(self, apply_label_filter: bool = True) -> List[Dict]:
             if open_prs:
                 project_states = self._batch_fetch_project_states(repo, open_prs)
 
+            # Filter to my candidate PRs
+            my_candidate_prs = []
             for pr in open_prs:
                 pr_author = pr['user']['login']
 
@@ -57,123 +62,168 @@ def get_my_open_prs(self, apply_label_filter: bool = True) -> List[Dict]:
                     if not (has_required_label or has_required_state):
                         continue
 
-                # Get PR details
-                pr_number = pr['number']
-                pr_details_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
-                reviews_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews"
+                my_candidate_prs.append(pr)
 
-                try:
-                    # Fetch PR details and reviews in parallel
-                    with ThreadPoolExecutor(max_workers=2) as executor:
-                        future_details = executor.submit(self.api_client.get, pr_details_url)
-                        future_reviews = executor.submit(self._get_paginated, reviews_url, use_cache=False)
-
-                        pr_details_response = future_details.result()
-                        reviews = future_reviews.result()
-
-                    additions = 0
-                    deletions = 0
-                    requested_reviewers = []
-                    review_count = 0
-                    labels = []
-
-                    if pr_details_response.status_code == 200:
-                        pr_details = pr_details_response.json()
-                        additions = pr_details.get('additions', 0)
-                        deletions = pr_details.get('deletions', 0)
-
-                        # Get requested reviewers
-                        requested_reviewers_list = pr_details.get('requested_reviewers', [])
-                        requested_reviewers = [r['login'] for r in requested_reviewers_list]
-
-                        # Get labels
-                        labels = [label['name'] for label in pr_details.get('labels', [])]
-
-                        # Apply file filtering if enabled
-                        if self.exclude_generated_files:
-                            filtered_counts = self._get_filtered_line_counts(repo, pr_number, should_cache=True)
-                            if filtered_counts:
-                                additions = filtered_counts['additions']
-                                deletions = filtered_counts['deletions']
-
-                    # Count unique reviewers and check for active change requests (excluding me and excluded users)
-                    unique_reviewers = set()
-                    requested_reviewer_logins = set(requested_reviewers)
-                    reviews_by_reviewer = defaultdict(list)
-
-                    for review in reviews:
-                        reviewer = review['user']['login']
-                        if reviewer != self.username and reviewer not in self.excluded_users:
-                            unique_reviewers.add(reviewer)
-                            reviews_by_reviewer[reviewer].append(review)
-
-                    review_count = len(unique_reviewers)
-
-                    # Check for active change requests
-                    # A change request is ACTIVE if:
-                    #   - The reviewer has at least one CHANGES_REQUESTED review
-                    #   - AND has NOT submitted an APPROVED review after the last CHANGES_REQUESTED
-                    #   - AND the review has NOT been DISMISSED
-                    #   - AND the reviewer is NOT in requested_reviewers (which means their review is outdated)
-                    # Note: COMMENTED reviews do NOT clear a change request!
-                    # Note: Being re-requested (in requested_reviewers) means previous reviews are outdated
-                    has_change_requests = False
-                    for reviewer, reviewer_reviews in reviews_by_reviewer.items():
-                        # Skip reviewers who are in requested_reviewers - their previous reviews are outdated
-                        # When new commits are pushed that address concerns, reviewers are re-requested
-                        # and their old CHANGES_REQUESTED reviews are no longer considered active
-                        if reviewer in requested_reviewer_logins:
-                            continue
-
-                        # Sort by submitted_at (chronological order)
-                        sorted_reviews = sorted(
-                            reviewer_reviews,
-                            key=lambda r: r.get('submitted_at', ''),
-                            reverse=False  # oldest first
-                        )
-
-                        # Check if there's an active change request
-                        has_change_request = False
-                        last_changes_requested_time = None
-
-                        for review in sorted_reviews:
-                            state = review.get('state')
-                            submitted_at = review.get('submitted_at', '')
-
-                            if state == 'CHANGES_REQUESTED':
-                                has_change_request = True
-                                last_changes_requested_time = submitted_at
-                            elif state == 'APPROVED' and last_changes_requested_time:
-                                # APPROVED after CHANGES_REQUESTED clears the change request
-                                if submitted_at > last_changes_requested_time:
-                                    has_change_request = False
-                            elif state == 'DISMISSED':
-                                # DISMISSED clears any change request
-                                has_change_request = False
-
-                        if has_change_request:
-                            has_change_requests = True
-                            break
-
-                    my_prs.append({
-                        'number': pr_number,
-                        'title': pr['title'],
-                        'url': pr['html_url'],
-                        'repo': repo,
-                        'additions': additions,
-                        'deletions': deletions,
-                        'created_at': pr['created_at'],
-                        'updated_at': pr['updated_at'],
-                        'review_count': review_count,
-                        'requested_reviewers': requested_reviewers,
-                        'labels': labels,
-                        'has_change_requests': has_change_requests,
-                        'project_states': project_states.get(pr_number, [])
-                    })
-                except Exception as e:
-                    logging.warning(f"Error fetching PR details for #{pr_number}: {e}")
+            # Process all candidates in parallel
+            if my_candidate_prs:
+                max_workers = min(10, len(my_candidate_prs))
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = {
+                        executor.submit(self._process_single_my_pr, repo, pr, project_states): pr
+                        for pr in my_candidate_prs
+                    }
+                    for future in as_completed(futures):
+                        try:
+                            result = future.result()
+                            if result:
+                                repo_prs.append(result)
+                        except Exception as e:
+                            logging.warning(f"Error processing my PR: {e}")
 
         except Exception as e:
             logging.error(f"Error fetching my open PRs from {repo}: {e}")
 
+        return repo_prs
+
+    # Process repositories in parallel
+    if len(self.repositories) > 1:
+        with ThreadPoolExecutor(max_workers=len(self.repositories)) as executor:
+            futures = [executor.submit(_process_repo, repo) for repo in self.repositories]
+            for future in as_completed(futures):
+                try:
+                    my_prs.extend(future.result())
+                except Exception as e:
+                    logging.error(f"Error processing repository: {e}")
+    elif self.repositories:
+        my_prs.extend(_process_repo(self.repositories[0]))
+
     return my_prs
+
+
+def _process_single_my_pr(self, repo: str, pr: Dict, project_states: Dict) -> Dict:
+    """Process a single of my open PRs and return PR info dict.
+
+    Args:
+        repo: Repository name
+        pr: PR data from GitHub API
+        project_states: Pre-fetched project states for the repo
+
+    Returns:
+        Dictionary with PR information, or None on error
+    """
+    pr_number = pr['number']
+    pr_details_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
+    reviews_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews"
+
+    try:
+        # Fetch PR details and reviews in parallel
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_details = executor.submit(self.api_client.get, pr_details_url)
+            future_reviews = executor.submit(self._get_paginated, reviews_url, use_cache=False)
+
+            pr_details_response = future_details.result()
+            reviews = future_reviews.result()
+
+        additions = 0
+        deletions = 0
+        requested_reviewers = []
+        review_count = 0
+        labels = []
+
+        if pr_details_response.status_code == 200:
+            pr_details = pr_details_response.json()
+            additions = pr_details.get('additions', 0)
+            deletions = pr_details.get('deletions', 0)
+
+            # Get requested reviewers
+            requested_reviewers_list = pr_details.get('requested_reviewers', [])
+            requested_reviewers = [r['login'] for r in requested_reviewers_list]
+
+            # Get labels
+            labels = [label['name'] for label in pr_details.get('labels', [])]
+
+            # Apply file filtering if enabled
+            if self.exclude_generated_files:
+                filtered_counts = self._get_filtered_line_counts(repo, pr_number, should_cache=True)
+                if filtered_counts:
+                    additions = filtered_counts['additions']
+                    deletions = filtered_counts['deletions']
+
+        # Count unique reviewers and check for active change requests (excluding me and excluded users)
+        unique_reviewers = set()
+        requested_reviewer_logins = set(requested_reviewers)
+        reviews_by_reviewer = defaultdict(list)
+
+        for review in reviews:
+            reviewer = review['user']['login']
+            if reviewer != self.username and reviewer not in self.excluded_users:
+                unique_reviewers.add(reviewer)
+                reviews_by_reviewer[reviewer].append(review)
+
+        review_count = len(unique_reviewers)
+
+        # Check for active change requests
+        # A change request is ACTIVE if:
+        #   - The reviewer has at least one CHANGES_REQUESTED review
+        #   - AND has NOT submitted an APPROVED review after the last CHANGES_REQUESTED
+        #   - AND the review has NOT been DISMISSED
+        #   - AND the reviewer is NOT in requested_reviewers (which means their review is outdated)
+        # Note: COMMENTED reviews do NOT clear a change request!
+        # Note: Being re-requested (in requested_reviewers) means previous reviews are outdated
+        has_change_requests = False
+        for reviewer, reviewer_reviews in reviews_by_reviewer.items():
+            # Skip reviewers who are in requested_reviewers - their previous reviews are outdated
+            # When new commits are pushed that address concerns, reviewers are re-requested
+            # and their old CHANGES_REQUESTED reviews are no longer considered active
+            if reviewer in requested_reviewer_logins:
+                continue
+
+            # Sort by submitted_at (chronological order)
+            sorted_reviews = sorted(
+                reviewer_reviews,
+                key=lambda r: r.get('submitted_at', ''),
+                reverse=False  # oldest first
+            )
+
+            # Check if there's an active change request
+            has_change_request = False
+            last_changes_requested_time = None
+
+            for review in sorted_reviews:
+                state = review.get('state')
+                submitted_at = review.get('submitted_at', '')
+
+                if state == 'CHANGES_REQUESTED':
+                    has_change_request = True
+                    last_changes_requested_time = submitted_at
+                elif state == 'APPROVED' and last_changes_requested_time:
+                    # APPROVED after CHANGES_REQUESTED clears the change request
+                    if submitted_at > last_changes_requested_time:
+                        has_change_request = False
+                elif state == 'DISMISSED':
+                    # DISMISSED clears any change request
+                    has_change_request = False
+
+            if has_change_request:
+                has_change_requests = True
+                break
+
+        return {
+            'number': pr_number,
+            'title': pr['title'],
+            'url': pr['html_url'],
+            'repo': repo,
+            'additions': additions,
+            'deletions': deletions,
+            'created_at': pr['created_at'],
+            'updated_at': pr['updated_at'],
+            'review_count': review_count,
+            'requested_reviewers': requested_reviewers,
+            'labels': labels,
+            'has_change_requests': has_change_requests,
+            'project_states': project_states.get(pr_number, []),
+            'is_draft': pr.get('draft', False)
+        }
+    except Exception as e:
+        logging.warning(f"Error fetching PR details for #{pr_number}: {e}")
+        return None

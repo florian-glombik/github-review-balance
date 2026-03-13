@@ -7,6 +7,7 @@ Analyzes PR review activity between users in specified repositories.
 import os
 import sys
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 
 from src.analyzer import GitHubReviewAnalyzer
@@ -20,6 +21,29 @@ logging.basicConfig(
     format='%(asctime)s %(levelname)s: %(message)s',
     datefmt='%m/%d/%Y %I:%M:%S %p'
 )
+
+
+def _filter_my_open_prs(all_prs, analyzer):
+    """Filter my open PRs by draft status and label/project state requirements.
+
+    Derives the filtered list from the unfiltered one to avoid fetching twice.
+    """
+    filtered = []
+    for pr in all_prs:
+        # Skip drafts
+        if pr.get('is_draft', False):
+            continue
+
+        # Check label/state filter
+        if analyzer.required_pr_label or analyzer.required_project_state:
+            has_label = analyzer.required_pr_label and analyzer.required_pr_label in pr.get('labels', [])
+            has_state = analyzer.required_project_state and analyzer.required_project_state in pr.get('project_states', [])
+
+            if not (has_label or has_state):
+                continue
+
+        filtered.append(pr)
+    return filtered
 
 
 def main():
@@ -229,13 +253,18 @@ def main():
     if new_users > 0:
         logging.info(f"Added {new_users} new user(s) to {user_config_path}")
 
-    # Get open PRs and print summary
+    # Get open PRs and my open PRs in parallel
     logging.info("Analysis complete, generating summary...")
-    open_prs_by_author = analyzer.get_open_prs_needing_review()
 
-    # Get my open PRs (filtered for display, all for PR Summary)
-    my_open_prs = analyzer.get_my_open_prs(apply_label_filter=True)
-    all_my_open_prs = analyzer.get_my_open_prs(apply_label_filter=False)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future_open_prs = executor.submit(analyzer.get_open_prs_needing_review)
+        future_my_prs = executor.submit(analyzer.get_my_open_prs, False)
+
+        open_prs_by_author = future_open_prs.result()
+        all_my_open_prs = future_my_prs.result()
+
+    # Derive filtered my open PRs from unfiltered (avoids fetching twice)
+    my_open_prs = _filter_my_open_prs(all_my_open_prs, analyzer)
 
     # Create config dictionary for the output formatter
     config = {

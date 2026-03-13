@@ -15,7 +15,10 @@ def get_open_prs_needing_review(self) -> Dict[str, List[Dict]]:
     prs_by_author = defaultdict(list)
 
     print("\nFetching currently open PRs...")
-    for repo in self.repositories:
+
+    def _process_repo(repo):
+        """Fetch and process open PRs needing review from a single repository."""
+        repo_prs_by_author = defaultdict(list)
         url = f"https://api.github.com/repos/{repo}/pulls"
 
         try:
@@ -59,10 +62,26 @@ def get_open_prs_needing_review(self) -> Dict[str, List[Dict]]:
 
             # Process PRs in parallel
             if candidate_prs:
-                self._process_open_prs_parallel(repo, candidate_prs, prs_by_author)
+                self._process_open_prs_parallel(repo, candidate_prs, repo_prs_by_author)
 
         except Exception as e:
             logging.error(f"Error fetching open PRs from {repo}: {e}")
+
+        return dict(repo_prs_by_author)
+
+    # Process repositories in parallel
+    if len(self.repositories) > 1:
+        with ThreadPoolExecutor(max_workers=len(self.repositories)) as executor:
+            futures = [executor.submit(_process_repo, repo) for repo in self.repositories]
+            for future in as_completed(futures):
+                try:
+                    for author, prs in future.result().items():
+                        prs_by_author[author].extend(prs)
+                except Exception as e:
+                    logging.error(f"Error processing repository: {e}")
+    elif self.repositories:
+        for author, prs in _process_repo(self.repositories[0]).items():
+            prs_by_author[author].extend(prs)
 
     return prs_by_author
 
