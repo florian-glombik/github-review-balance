@@ -80,7 +80,7 @@ def _generate_pr_summary_message(self, my_open_prs: list) -> str:
     ]:
         if prs:
             emoji = emoji_map[template_key]
-            message += f"&gt; {emoji} {templates[template_key]}\n"
+            message += f"{emoji} {templates[template_key]}\n"
             for pr in prs:
                 slack_title = pr['title'].replace('`', '')
                 if ':' in slack_title:
@@ -88,7 +88,7 @@ def _generate_pr_summary_message(self, my_open_prs: list) -> str:
                     slack_title = f"`{prefix.strip()}`: *{rest.strip()}*"
                 else:
                     slack_title = f"*{slack_title}*"
-                message += f"\u2022 {slack_title} - {pr['url']} (+{pr['additions']:,}/-{pr['deletions']:,} lines)\n"
+                message += f"{slack_title} - {pr['url']} (+{pr['additions']:,}/-{pr['deletions']:,} lines)\n"
             message += "\n"
 
     message += templates['pr_summary_footer']
