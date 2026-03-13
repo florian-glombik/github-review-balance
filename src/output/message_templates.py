@@ -67,15 +67,27 @@ def _generate_pr_summary_message(self, my_open_prs: list) -> str:
     # Build message with sections for each category
     message = templates['pr_summary_header'] + "\n\n"
 
+    emoji_map = {
+        'pr_summary_in_review': ':large_yellow_circle:',
+        'pr_summary_ready_to_merge': ':large_green_circle:',
+        'pr_summary_in_progress': ':large_orange_circle:',
+    }
+
     for prs, template_key in [
         (in_review, 'pr_summary_in_review'),
         (ready_to_merge, 'pr_summary_ready_to_merge'),
         (in_progress, 'pr_summary_in_progress')
     ]:
         if prs:
-            message += f"`{templates[template_key]}`\n"
+            emoji = emoji_map[template_key]
+            message += f"&gt; {emoji} {templates[template_key]}\n"
             for pr in prs:
                 slack_title = pr['title'].replace('`', '')
+                if ':' in slack_title:
+                    prefix, rest = slack_title.split(':', 1)
+                    slack_title = f"`{prefix.strip()}`: *{rest.strip()}*"
+                else:
+                    slack_title = f"*{slack_title}*"
                 message += f"\u2022 {slack_title} - {pr['url']} (+{pr['additions']:,}/-{pr['deletions']:,} lines)\n"
             message += "\n"
 
