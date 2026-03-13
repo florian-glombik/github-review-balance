@@ -291,9 +291,10 @@ def _print_detailed_history(
         my_reviews = reviewed_by_me[user]
         their_reviews = reviewed_by_others[user]
 
-        print(f"\n{'\u2500'*80}")
+        separator = '\u2500' * 80
+        print(f"\n{separator}")
         print(f"\U0001f464 {user}")
-        print(f"{'\u2500'*80}")
+        print(f"{separator}")
 
         # Summary table
         print(f"\n{'Metric':<30} {'I reviewed':<20} {'They reviewed':<20}")
