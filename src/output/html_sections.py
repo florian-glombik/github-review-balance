@@ -324,8 +324,9 @@ def _generate_balance_row_html(self, item: dict, users_with_open_prs: set = None
         balance_str = f"{balance:,}"
 
     row_classes = balance_class if has_open_prs else f"{balance_class} disabled"
+    html_display_name = self._get_html_display_name(user)
     return f'''<tr class="{row_classes}">
-    <td>{user}</td>
+    <td>{html_display_name}</td>
     <td>{total_prs}</td>
     <td>{their_prs_i_reviewed}</td>
     <td>{my_prs_they_reviewed}</td>
@@ -423,9 +424,10 @@ def _generate_open_prs_html(
                 priority_class = ""
                 priority_text = ""
 
+            author_html_name = self._get_html_display_name(author)
             html += f'<div class="author-section" id="user-{author}">\n'
             html += f'<div class="author-name">'
-            html += f'From <a href="https://github.com/{author}" class="author-link" target="_blank">{author}</a>'
+            html += f'From <a href="https://github.com/{author}" class="author-link" target="_blank">{author_html_name}</a>'
             if priority_text:
                 html += f' <span style="color: #28a745;">({priority_text})</span>'
             html += f' <a href="#" class="back-to-table" data-username="{author}">\u2191 overview</a>'
@@ -491,7 +493,7 @@ def _generate_open_prs_html(
             if my_reviews or their_reviews:
                 review_history_open = ' open' if self.section_review_history_expanded else ''
                 html += f'<details{review_history_open} style="margin-top: 20px;">\n'
-                html += f'<summary style="cursor: pointer; font-weight: 600; color: #667eea;">Review History with {author}</summary>\n'
+                html += f'<summary style="cursor: pointer; font-weight: 600; color: #667eea;">Review History with {author_html_name}</summary>\n'
                 html += '<div style="padding: 15px; background: #fafafa; border-radius: 4px; margin-top: 10px;">\n'
 
                 # Summary table
@@ -522,7 +524,7 @@ def _generate_open_prs_html(
 
                 # List PRs I reviewed
                 if my_reviews and my_reviews.prs:
-                    html += f'<p style="margin-top: 15px;"><strong>\U0001f4dd PRs I reviewed from {author} ({len(my_reviews.prs)}):</strong></p>\n'
+                    html += f'<p style="margin-top: 15px;"><strong>\U0001f4dd PRs I reviewed from {author_html_name} ({len(my_reviews.prs)}):</strong></p>\n'
                     html += '<ul style="margin-left: 20px;">\n'
                     for pr in my_reviews.prs:
                         html += f'<li>#{pr["number"]}: {pr["title"]}<br>\n'
@@ -532,7 +534,7 @@ def _generate_open_prs_html(
 
                 # List PRs they reviewed
                 if their_reviews and their_reviews.prs:
-                    html += f'<p style="margin-top: 15px;"><strong>\U0001f4dd PRs {author} reviewed for me ({len(their_reviews.prs)}):</strong></p>\n'
+                    html += f'<p style="margin-top: 15px;"><strong>\U0001f4dd PRs {author_html_name} reviewed for me ({len(their_reviews.prs)}):</strong></p>\n'
                     html += '<ul style="margin-left: 20px;">\n'
                     for pr in their_reviews.prs:
                         html += f'<li>#{pr["number"]}: {pr["title"]}<br>\n'
@@ -547,7 +549,7 @@ def _generate_open_prs_html(
                 my_prs_for_author_open = ' open' if self.section_my_prs_for_author_expanded else ''
                 html += '<div style="margin-top: 20px; padding-top: 15px; border-top: 2px solid #ddd;">\n'
                 html += f'<details{my_prs_for_author_open}>\n'
-                html += f'<summary class="user-prs-summary">My PRs for {author} to Review ({len(my_open_prs)})</summary>\n'
+                html += f'<summary class="user-prs-summary">My PRs for {author_html_name} to Review ({len(my_open_prs)})</summary>\n'
                 html += '<p style="font-size: 0.9em; color: #666; margin-bottom: 10px; margin-top: 10px;">Click either button to copy a personalized Slack-ready message requesting code review or testing</p>\n'
                 html += '<p style="background: #fff3cd; border: 1px solid #ffc107; padding: 8px; border-radius: 4px; margin: 10px 0; font-size: 0.85em;"><strong>\u26a0\ufe0f Important:</strong> Press <kbd>CMD/CTRL + Shift + F</kbd> before sending the message in Slack to apply formatting!</p>\n'
 
@@ -661,9 +663,10 @@ def _generate_open_prs_html(
 
             for item in users_balance:
                 user = item['user']
+                user_html_name = self._get_html_display_name(user)
                 html += f'<div class="author-section" id="user-{user}">\n'
                 html += f'<div class="author-name">'
-                html += f'<a href="https://github.com/{user}" class="author-link" target="_blank">{user}</a>'
+                html += f'<a href="https://github.com/{user}" class="author-link" target="_blank">{user_html_name}</a>'
                 html += f' <span style="color: #999;">(No open PRs to review)</span>'
                 html += f' <a href="#" class="back-to-table" data-username="{user}">\u2191 overview</a>'
                 # Add filter links for each repository
@@ -681,7 +684,7 @@ def _generate_open_prs_html(
                 if my_reviews or their_reviews:
                     review_history_open = ' open' if self.section_review_history_expanded else ''
                     html += f'<details{review_history_open} style="margin-top: 10px;">\n'
-                    html += f'<summary style="cursor: pointer; font-weight: 600; color: #667eea;">Review History with {user}</summary>\n'
+                    html += f'<summary style="cursor: pointer; font-weight: 600; color: #667eea;">Review History with {user_html_name}</summary>\n'
                     html += '<div style="padding: 15px; background: #fafafa; border-radius: 4px; margin-top: 10px;">\n'
 
                     # Summary table
@@ -712,7 +715,7 @@ def _generate_open_prs_html(
 
                     # List PRs I reviewed
                     if my_reviews and my_reviews.prs:
-                        html += f'<p style="margin-top: 15px;"><strong>PRs I reviewed from {user} ({len(my_reviews.prs)}):</strong></p>\n'
+                        html += f'<p style="margin-top: 15px;"><strong>PRs I reviewed from {user_html_name} ({len(my_reviews.prs)}):</strong></p>\n'
                         html += '<ul style="margin-left: 20px;">\n'
                         for pr in my_reviews.prs:
                             html += f'<li>#{pr["number"]}: {pr["title"]}<br>\n'
@@ -722,7 +725,7 @@ def _generate_open_prs_html(
 
                     # List PRs they reviewed
                     if their_reviews and their_reviews.prs:
-                        html += f'<p style="margin-top: 15px;"><strong>PRs {user} reviewed for me ({len(their_reviews.prs)}):</strong></p>\n'
+                        html += f'<p style="margin-top: 15px;"><strong>PRs {user_html_name} reviewed for me ({len(their_reviews.prs)}):</strong></p>\n'
                         html += '<ul style="margin-left: 20px;">\n'
                         for pr in their_reviews.prs:
                             html += f'<li>#{pr["number"]}: {pr["title"]}<br>\n'
@@ -736,7 +739,7 @@ def _generate_open_prs_html(
                 if my_open_prs:
                     html += '<div style="margin-top: 20px; padding-top: 15px; border-top: 2px solid #ddd;">\n'
                     html += '<details>\n'
-                    html += f'<summary class="user-prs-summary">My PRs for {user} to Review ({len(my_open_prs)})</summary>\n'
+                    html += f'<summary class="user-prs-summary">My PRs for {user_html_name} to Review ({len(my_open_prs)})</summary>\n'
                     html += '<p style="font-size: 0.9em; color: #666; margin-bottom: 10px; margin-top: 10px;">Click either button to copy a personalized Slack-ready message requesting code review or testing</p>\n'
                     html += '<p style="background: #fff3cd; border: 1px solid #ffc107; padding: 8px; border-radius: 4px; margin: 10px 0; font-size: 0.85em;"><strong>Warning:</strong> Press <kbd>CMD/CTRL + Shift + F</kbd> before sending the message in Slack to apply formatting!</p>\n'
 
@@ -843,8 +846,9 @@ def _generate_detailed_history_html(
         my_reviews = reviewed_by_me[user]
         their_reviews = reviewed_by_others[user]
 
+        user_html_name = self._get_html_display_name(user)
         html += f'<div class="detailed-section">\n'
-        html += f'<h3>\U0001f464 {user}</h3>\n'
+        html += f'<h3>\U0001f464 {user_html_name}</h3>\n'
 
         # Summary table
         html += '<table class="metric-table">\n'

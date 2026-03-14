@@ -60,6 +60,13 @@ class OutputFormatter:
             return self.user_config.get_nickname(github_username)
         return github_username
 
+    def _get_html_display_name(self, github_username: str) -> str:
+        """Get the HTML display name: 'Nickname (github_username)' if nickname is set, otherwise just the username."""
+        display_name = self._get_display_name(github_username)
+        if display_name != github_username:
+            return f'{display_name} ({github_username})'
+        return github_username
+
     def _get_user_language(self, github_username: str) -> str:
         """Get the language preference for a user."""
         if self.user_config:
