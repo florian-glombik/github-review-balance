@@ -817,11 +817,9 @@ class TestDisabledRowsForUsersWithoutOpenPRs:
         assert 'class="balance-positive disabled"' in html or 'class="balance-negative disabled"' in html or 'class="balance-neutral disabled"' in html or 'class="balance-warning disabled"' in html
 
         # bob's row should NOT have 'disabled' class (has open PRs)
-        # Check that there's a row without disabled class
-        assert ('<tr class="balance-positive">' in html or
-                '<tr class="balance-negative">' in html or
-                '<tr class="balance-neutral">' in html or
-                '<tr class="balance-warning">' in html)
+        # Check that there's a row without disabled class (data-username attribute is also present)
+        import re
+        assert re.search(r'<tr class="balance-(positive|negative|neutral|warning)" data-username=', html)
 
     def test_no_disabled_class_when_user_has_open_prs(self):
         """Test that rows for users with open PRs do NOT have the disabled class."""
@@ -870,7 +868,7 @@ class TestDisabledRowsForUsersWithoutOpenPRs:
         # Both rows should have 'disabled' class
         # Count occurrences of 'disabled' in tr class attributes
         import re
-        disabled_rows = re.findall(r'<tr class="[^"]*disabled[^"]*">', html)
+        disabled_rows = re.findall(r'<tr class="[^"]*disabled[^"]*"', html)
         assert len(disabled_rows) == 2, f"Expected 2 disabled rows, found {len(disabled_rows)}"
 
     def test_other_collaborators_section_generated_for_users_without_open_prs(self):

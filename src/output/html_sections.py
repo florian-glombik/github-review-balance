@@ -325,7 +325,7 @@ def _generate_balance_row_html(self, item: dict, users_with_open_prs: set = None
 
     row_classes = balance_class if has_open_prs else f"{balance_class} disabled"
     html_display_name = self._get_html_display_name(user)
-    return f'''<tr class="{row_classes}">
+    return f'''<tr class="{row_classes}" data-username="{user}">
     <td>{html_display_name}</td>
     <td>{total_prs}</td>
     <td>{their_prs_i_reviewed}</td>

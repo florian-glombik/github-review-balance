@@ -620,7 +620,7 @@ def _generate_html_header(self, open_prs_by_author: Dict[str, list] = None) -> s
 
                 // Row click navigation - scroll to user section
                 tbody.querySelectorAll('tr').forEach(row => {{
-                    const username = row.cells[0].textContent.trim();
+                    const username = row.dataset.username;
 
                     row.addEventListener('click', () => {{
                         const targetSection = document.getElementById('user-' + username);
@@ -645,7 +645,7 @@ def _generate_html_header(self, open_prs_by_author: Dict[str, list] = None) -> s
                         setTimeout(() => {{
                             const rows = table.querySelectorAll('tbody tr');
                             rows.forEach(row => {{
-                                if (row.cells[0].textContent.trim() === username) {{
+                                if (row.dataset.username === username) {{
                                     row.classList.remove('highlight');
                                     // Force reflow to restart animation
                                     void row.offsetWidth;
