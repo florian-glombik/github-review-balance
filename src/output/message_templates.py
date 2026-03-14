@@ -5,19 +5,19 @@ def _get_message_templates(self, language: str) -> dict:
     """Get message templates for the specified language."""
     if language == 'german':
         return {
-            'code_review_intro': "Hey, ich brauche eure Hilfe fuer *2 Code Reviews* fuer: *{title}*",
-            'testing_intro': "Hey, ich brauche eure Hilfe fuer *2 manuelle Tests* fuer: *{title}*",
+            'code_review_intro': "Hey, ich brauche eure Hilfe für *2 Code Reviews* für: *{title}*",
+            'testing_intro': "Hey, ich brauche eure Hilfe für *2 manuelle Tests* für: *{title}*",
             'ready_to_merge_intro': "Hey, diese PR ist jetzt bereit zum Mergen: *{title}*",
             'trade_offer': "Wie immer tausche ich gerne Reviews :smile:",
-            'thanks': "Danke fuer die Reviews! :tada:",
+            'thanks': "Danke für die Reviews! :tada:",
             'pr_summary_header': "Ein kurzes Update zu meinen offenen PRs:",
             'pr_summary_in_review': "In Review",
             'pr_summary_ready_to_merge': "Ready to Merge",
             'pr_summary_in_progress': "In Progress",
             'pr_summary_footer': "",
             # Personalized messages for "My PRs for [author]"
-            'personalized_code_review': "Hey {display_name}, ich brauche deine Hilfe fuer *ein Code Review* fuer: *{title}*",
-            'personalized_testing': "Hey {display_name}, ich brauche deine Hilfe fuer *einen manuellen Test* fuer: *{title}*",
+            'personalized_code_review': "Hey {display_name}, ich brauche deine Hilfe für *ein Code Review* für: *{title}*",
+            'personalized_testing': "Hey {display_name}, ich brauche deine Hilfe für *einen manuellen Test* für: *{title}*",
             'personalized_trade_offer': "Wie immer tausche ich gerne Reviews :smile:"
         }
     else:  # english (default)
