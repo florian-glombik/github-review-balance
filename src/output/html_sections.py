@@ -110,6 +110,7 @@ def _generate_my_open_prs_html(self, my_open_prs: list, all_my_open_prs: list = 
 
     html += f'<p>You have <strong>{len(my_open_prs)}</strong> open PR(s). Click either button to copy a Slack-ready message requesting code review or testing.</p>\n'
     html += '<p style="background: #fff3cd; border: 1px solid #ffc107; padding: 10px; border-radius: 4px; margin: 10px 0;"><strong>\u26a0\ufe0f Important:</strong> Press <kbd>CMD/CTRL + Shift + F</kbd> before sending the message in Slack to apply formatting!</p>\n'
+    html += '<p style="background: #fff3cd; border: 1px solid #ffc107; padding: 10px; border-radius: 4px; margin: 10px 0;"><strong>\u26a0\ufe0f Important:</strong> Press <kbd>CMD/CTRL + Shift + 8</kbd> to auto format bullet point lists in Slack.</p>\n'
 
     # Generate and add PR Summary button (uses all open PRs, not just filtered ones)
     prs_for_summary = all_my_open_prs if all_my_open_prs else my_open_prs
