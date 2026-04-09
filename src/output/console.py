@@ -26,6 +26,10 @@ def print_summary(
     print("="*80)
 
     all_users = set(reviewed_by_me.keys()) | set(reviewed_by_others.keys())
+    if pr_authors:
+        all_users |= pr_authors
+    if open_prs_by_author:
+        all_users |= set(open_prs_by_author.keys())
 
     if not all_users:
         print("\nNo review activity found.")

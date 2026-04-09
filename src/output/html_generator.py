@@ -30,6 +30,10 @@ def generate_html(
         HTML string containing the full report
     """
     all_users = set(reviewed_by_me.keys()) | set(reviewed_by_others.keys())
+    if pr_authors:
+        all_users |= pr_authors
+    if open_prs_by_author:
+        all_users |= set(open_prs_by_author.keys())
 
     if not all_users:
         return self._generate_empty_html()
