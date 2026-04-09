@@ -39,7 +39,7 @@ def get_open_prs_needing_review(self) -> Dict[str, List[Dict]]:
                 pr_author = pr['user']['login']
 
                 # Skip my own PRs and excluded users
-                if pr_author == self.username or pr_author in self.excluded_users:
+                if pr_author.lower() == self.username or pr_author.lower() in self.excluded_users:
                     continue
 
                 # Skip draft PRs
@@ -135,8 +135,8 @@ def _check_and_create_pr_info(self, repo: str, pr: Dict) -> Optional[Dict]:
         comments = self._get_paginated(comments_url, use_cache=False)
 
         # Check if I've already reviewed
-        my_reviews = [r for r in reviews if r['user']['login'] == self.username]
-        my_comments = [c for c in comments if c['user']['login'] == self.username]
+        my_reviews = [r for r in reviews if r['user']['login'].lower() == self.username]
+        my_comments = [c for c in comments if c['user']['login'].lower() == self.username]
 
         # Track if my review was dismissed
         my_review_dismissed = False
@@ -180,7 +180,7 @@ def _check_and_create_pr_info(self, repo: str, pr: Dict) -> Optional[Dict]:
             # Check if I was requested to review
             requested_reviewers = pr_details.get('requested_reviewers', [])
             requested_reviewer_logins = {r['login'] for r in requested_reviewers}
-            requested_my_review = self.username in requested_reviewer_logins
+            requested_my_review = any(login.lower() == self.username for login in requested_reviewer_logins)
 
             # Apply file filtering if enabled - check cache first
             if self.exclude_generated_files:
@@ -204,7 +204,7 @@ def _check_and_create_pr_info(self, repo: str, pr: Dict) -> Optional[Dict]:
                 continue
 
             # Exclude PR author, myself, and excluded users from review tracking
-            if reviewer != pr_author and reviewer != self.username and reviewer not in self.excluded_users:
+            if reviewer != pr_author and reviewer.lower() != self.username and reviewer.lower() not in self.excluded_users:
                 unique_reviewers.add(reviewer)
                 valid_reviews.append(review)
 
@@ -313,8 +313,8 @@ def _has_reviewed_pr(self, repo: str, pr: Dict) -> bool:
             reviews = future_reviews.result()
             review_comments = future_comments.result()
 
-            my_reviews = [r for r in reviews if r['user']['login'] == self.username]
-            my_comments = [c for c in review_comments if c['user']['login'] == self.username]
+            my_reviews = [r for r in reviews if r['user']['login'].lower() == self.username]
+            my_comments = [c for c in review_comments if c['user']['login'].lower() == self.username]
 
             return bool(my_reviews or my_comments)
 
@@ -358,7 +358,7 @@ def _create_pr_info(self, repo: str, pr: Dict) -> Dict:
                 # Check if I was requested to review this PR
                 requested_reviewers = pr_details.get('requested_reviewers', [])
                 requested_reviewer_logins = {r['login'] for r in requested_reviewers}
-                requested_my_review = self.username in requested_reviewer_logins
+                requested_my_review = any(login.lower() == self.username for login in requested_reviewer_logins)
 
                 # Apply file filtering if enabled
                 if self.exclude_generated_files:
@@ -382,7 +382,7 @@ def _create_pr_info(self, repo: str, pr: Dict) -> Dict:
                 if not submitted_at:
                     continue
 
-                if reviewer != pr_author and reviewer not in self.excluded_users:
+                if reviewer != pr_author and reviewer.lower() not in self.excluded_users:
                     unique_reviewers.add(reviewer)
                     valid_reviews.append(review)
 

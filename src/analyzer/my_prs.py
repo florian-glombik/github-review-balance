@@ -43,7 +43,7 @@ def get_my_open_prs(self, apply_label_filter: bool = True) -> List[Dict]:
                 pr_author = pr['user']['login']
 
                 # Only include my PRs
-                if pr_author != self.username:
+                if pr_author.lower() != self.username:
                     continue
 
                 # Skip draft PRs (only when filtering is enabled; include drafts in PR Summary)
@@ -156,7 +156,7 @@ def _process_single_my_pr(self, repo: str, pr: Dict, project_states: Dict) -> Di
 
         for review in reviews:
             reviewer = review['user']['login']
-            if reviewer != self.username and reviewer not in self.excluded_users:
+            if reviewer.lower() != self.username and reviewer.lower() not in self.excluded_users:
                 unique_reviewers.add(reviewer)
                 reviews_by_reviewer[reviewer].append(review)
 

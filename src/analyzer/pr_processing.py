@@ -56,7 +56,7 @@ def _analyze_pr(self, repo: str, pr: Dict):
     pr_state = pr.get('state', 'open')
 
     # Skip excluded users
-    if pr_author in self.excluded_users:
+    if pr_author.lower() in self.excluded_users:
         logging.debug(f"Skipping PR #{pr_number} by excluded user {pr_author}")
         return
 
@@ -150,7 +150,7 @@ def _track_reviewer_activity(self, reviews: List[Dict], review_comments: List[Di
         reviewer = review['user']['login']
         review_id = review['id']
 
-        if reviewer == self.username or reviewer == pr_author or reviewer in self.excluded_users:
+        if reviewer.lower() == self.username or reviewer == pr_author or reviewer.lower() in self.excluded_users:
             continue
 
         reviewer_activity[reviewer]['reviews'].add(review_id)
@@ -160,7 +160,7 @@ def _track_reviewer_activity(self, reviews: List[Dict], review_comments: List[Di
     for comment in review_comments:
         commenter = comment['user']['login']
 
-        if commenter == self.username or commenter == pr_author or commenter in self.excluded_users:
+        if commenter.lower() == self.username or commenter == pr_author or commenter.lower() in self.excluded_users:
             continue
 
         reviewer_activity[commenter]['comments'] += 1
@@ -197,10 +197,10 @@ def _update_stats(self, pr_author: str, pr_number: int, pr_title: str, pr_url: s
 
     with self._stats_lock:
         # Track PR author (unless it's me)
-        if pr_author != self.username:
+        if pr_author.lower() != self.username:
             self.pr_authors.add(pr_author)
 
-        if pr_author == self.username:
+        if pr_author.lower() == self.username:
             # Others reviewed my PR
             for reviewer, activity in reviewer_activity.items():
                 stats = self.reviewed_by_others[reviewer]
@@ -213,8 +213,8 @@ def _update_stats(self, pr_author: str, pr_number: int, pr_title: str, pr_url: s
                 stats.prs.append(pr_info)
         else:
             # I reviewed someone else's PR
-            my_reviews = [r for r in reviews if r['user']['login'] == self.username]
-            my_comments = [c for c in review_comments if c['user']['login'] == self.username]
+            my_reviews = [r for r in reviews if r['user']['login'].lower() == self.username]
+            my_comments = [c for c in review_comments if c['user']['login'].lower() == self.username]
 
             if my_reviews or my_comments:
                 stats = self.reviewed_by_me[pr_author]

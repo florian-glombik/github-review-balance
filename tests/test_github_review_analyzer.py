@@ -1998,6 +1998,47 @@ class TestProjectStateFiltering:
         assert 4 not in captured_pr_numbers
         assert 5 not in captured_pr_numbers
 
+    def test_analyze_repository_uses_cache_strategy_for_pr_lists(self):
+        """Test that open PR list skips cache while closed PR list can use cache."""
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.json') as f:
+            cache_file = f.name
+
+        analyzer = GitHubReviewAnalyzer(
+            username='test_user',
+            cache_file=cache_file,
+            use_cache=True
+        )
+
+        recent_merged_at = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        open_prs = [
+            {'number': 1, 'state': 'open', 'draft': False, 'labels': []}
+        ]
+        closed_prs = [
+            {'number': 2, 'state': 'closed', 'merged_at': recent_merged_at, 'draft': False, 'labels': []}
+        ]
+
+        list_fetch_calls = []
+
+        def mock_get_paginated(url, params, use_cache=True, should_continue=None):
+            state = params.get('state')
+            list_fetch_calls.append((state, use_cache))
+            if state == 'open':
+                return open_prs
+            if state == 'closed':
+                return closed_prs
+            return []
+
+        analyzer._get_paginated = Mock(side_effect=mock_get_paginated)
+        analyzer._process_prs_parallel = Mock()
+
+        try:
+            analyzer.analyze_repository('owner/repo', months=3)
+        finally:
+            if os.path.exists(cache_file):
+                os.remove(cache_file)
+
+        assert list_fetch_calls == [('open', False), ('closed', True)]
+
     def test_filter_prs_project_state_only_applies_to_open_prs(self):
         """Test that project state filtering only applies to open PRs, not closed ones."""
         analyzer = GitHubReviewAnalyzer(

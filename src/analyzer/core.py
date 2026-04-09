@@ -47,10 +47,10 @@ class GitHubReviewAnalyzer:
             excluded_file_patterns: Custom file patterns to exclude
             max_review_count_threshold: Minimum review count to filter PRs (None = no filtering)
         """
-        self.username = username
+        self.username = username.lower()
         self.api_client = GitHubAPIClient(token)
         self.cache_manager = CacheManager(cache_file, use_cache)
-        self.excluded_users = excluded_users or set()
+        self.excluded_users = {u.lower() for u in (excluded_users or set())}
         self.required_pr_label = required_pr_label
         self.required_project_state = required_project_state
         self.required_project_number = required_project_number
