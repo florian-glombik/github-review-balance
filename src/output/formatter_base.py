@@ -1,7 +1,7 @@
 """Output formatting and display for review analysis results."""
 
 import os
-from typing import Dict, Set
+from typing import Dict, Mapping, Optional, Set
 from collections import defaultdict
 from datetime import datetime
 
@@ -29,7 +29,7 @@ class OutputFormatter:
             show_extended_report: Whether to show the extended detailed history report
             show_overall_statistics: Whether to show the overall statistics section
             max_review_count_threshold: Minimum review count to filter PRs (None = no filtering)
-            filter_non_pr_authors: Whether to filter out users who have not opened any PRs
+            filter_non_pr_authors: Only show users who authored at least one PR in the analyzed window
             config: Configuration dictionary with analysis parameters (repositories, months, excluded_users, etc.)
             user_config: UserConfig instance for nicknames and language preferences
         """
@@ -89,6 +89,82 @@ class OutputFormatter:
         reverse_sort = (self.sort_by != 'user')
 
         return sorted(review_balance, key=sort_key, reverse=reverse_sort)
+
+    def _get_effective_pr_authors(
+        self,
+        pr_authors: Optional[Set[str]] = None,
+        open_prs_by_author: Optional[Mapping[str, list]] = None
+    ) -> Optional[Set[str]]:
+        """Merge known PR authors with authors from current open PRs."""
+        if pr_authors is None and not open_prs_by_author:
+            return None
+
+        effective_pr_authors = set(pr_authors or set())
+        if open_prs_by_author:
+            effective_pr_authors.update(open_prs_by_author.keys())
+        return effective_pr_authors
+
+    def _filter_users_by_pr_authors(
+        self,
+        users: Set[str],
+        pr_authors: Optional[Set[str]] = None,
+        reviewed_by_me: Optional[Dict[str, ReviewStats]] = None,
+        reviewed_by_others: Optional[Dict[str, ReviewStats]] = None
+    ) -> Set[str]:
+        """Apply filter_non_pr_authors using authored PR evidence."""
+        if not (self.filter_non_pr_authors and pr_authors is not None):
+            return set(users)
+
+        filtered_users = {user for user in users if user in pr_authors}
+
+        # Keep users whose PRs I reviewed, even if pr_authors is stale/incomplete.
+        if reviewed_by_me is not None:
+            for user in users:
+                my_reviews = reviewed_by_me.get(user)
+                if my_reviews and my_reviews.prs_reviewed > 0:
+                    filtered_users.add(user)
+
+        return filtered_users
+
+    def _build_review_balance_entries(
+        self,
+        users: Set[str],
+        reviewed_by_me: Dict[str, ReviewStats],
+        reviewed_by_others: Dict[str, ReviewStats],
+        pr_authors: Optional[Set[str]] = None
+    ) -> list:
+        """Build sorted review-balance rows, excluding users with zero interactions."""
+        review_balance = []
+        filtered_users = self._filter_users_by_pr_authors(
+            users,
+            pr_authors,
+            reviewed_by_me,
+            reviewed_by_others
+        )
+
+        for user in filtered_users:
+            my_reviews = reviewed_by_me[user]
+            their_reviews = reviewed_by_others[user]
+            total_prs = my_reviews.prs_reviewed + their_reviews.prs_reviewed
+
+            if total_prs == 0:
+                continue
+
+            review_balance.append({
+                'user': user,
+                'balance': their_reviews.lines_reviewed - my_reviews.lines_reviewed,
+                'they_reviewed': their_reviews.lines_reviewed,
+                'they_additions': their_reviews.additions_reviewed,
+                'they_deletions': their_reviews.deletions_reviewed,
+                'i_reviewed': my_reviews.lines_reviewed,
+                'i_additions': my_reviews.additions_reviewed,
+                'i_deletions': my_reviews.deletions_reviewed,
+                'total_prs': total_prs,
+                'their_prs_i_reviewed': my_reviews.prs_reviewed,
+                'my_prs_they_reviewed': their_reviews.prs_reviewed
+            })
+
+        return self._sort_review_balance(review_balance)
 
 
 # Import and attach methods from submodules

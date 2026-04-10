@@ -950,7 +950,7 @@ class TestDisabledRowsForUsersWithoutOpenPRs:
 
 
 class TestFilterNonPRAuthors:
-    """Test cases for filtering out users who haven't opened any PRs."""
+    """Test cases for FILTER_NON_PR_AUTHORS behavior in output sections."""
 
     @pytest.fixture
     def mixed_user_stats(self):
@@ -998,7 +998,7 @@ class TestFilterNonPRAuthors:
         return reviewed_by_me, reviewed_by_others, open_prs_by_author
 
     def test_filter_non_pr_authors_enabled(self, mixed_user_stats):
-        """Test that users who haven't opened PRs are filtered out when flag is True."""
+        """Users without authored PRs are filtered out when flag is enabled."""
         reviewed_by_me, reviewed_by_others, open_prs_by_author = mixed_user_stats
         formatter = OutputFormatter('test_user', filter_non_pr_authors=True)
 
@@ -1048,7 +1048,7 @@ class TestFilterNonPRAuthors:
             assert 'david' in output
 
     def test_filter_non_pr_authors_with_only_reviewers(self):
-        """Test filtering when only reviewers exist (no PR authors)."""
+        """Users with no authored PR evidence are filtered out."""
         reviewed_by_me = defaultdict(ReviewStats)
         reviewed_by_others = defaultdict(ReviewStats)
 
@@ -1069,6 +1069,182 @@ class TestFilterNonPRAuthors:
             # No users should appear in the table
             assert 'reviewer1' not in output
             assert 'reviewer2' not in output
+
+    def test_filter_non_pr_authors_includes_users_i_reviewed_when_pr_authors_stale(self):
+        """Users with PRs I reviewed stay visible even if pr_authors is empty/stale."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        reviewed_by_me['alice'].prs_reviewed = 1
+        reviewed_by_me['alice'].lines_reviewed = 80
+        reviewed_by_me['alice'].additions_reviewed = 60
+        reviewed_by_me['alice'].deletions_reviewed = 20
+
+        formatter = OutputFormatter('test_user', filter_non_pr_authors=True)
+        with patch('sys.stdout', new=StringIO()) as fake_output:
+            formatter.print_summary(reviewed_by_me, reviewed_by_others, open_prs_by_author={}, pr_authors=set())
+            output = fake_output.getvalue()
+
+        review_balance_section = output.split("REVIEW BALANCE & NEXT ACTIONS", 1)[1].split("OPEN PRs THAT NEED YOUR REVIEW", 1)[0]
+        assert 'alice' in review_balance_section
+
+    def test_filter_non_pr_authors_includes_open_pr_authors(self):
+        """Regression test: include collaborators from open PR list even if pr_authors is stale."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        reviewed_by_others['dominik'].prs_reviewed = 1
+        reviewed_by_others['dominik'].lines_reviewed = 120
+
+        open_prs_by_author = {
+            'dominik': [{
+                'number': 99,
+                'title': 'Open PR',
+                'url': 'https://github.com/test/repo/pull/99',
+                'repo': 'test/repo',
+                'additions': 80,
+                'deletions': 20,
+                'review_count': 0,
+                'requested_my_review': False
+            }]
+        }
+
+        formatter = OutputFormatter('test_user', filter_non_pr_authors=True)
+
+        with patch('sys.stdout', new=StringIO()) as fake_output:
+            formatter.print_summary(reviewed_by_me, reviewed_by_others, open_prs_by_author, pr_authors=set())
+            output = fake_output.getvalue()
+
+        review_balance_section = output.split("REVIEW BALANCE & NEXT ACTIONS", 1)[1].split("OPEN PRs THAT NEED YOUR REVIEW", 1)[0]
+        assert 'dominik' in review_balance_section
+
+    def test_html_filter_non_pr_authors_includes_open_pr_authors(self):
+        """Regression test for HTML review table with stale/missing pr_authors."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        reviewed_by_others['dominik'].prs_reviewed = 1
+        reviewed_by_others['dominik'].lines_reviewed = 120
+
+        open_prs_by_author = {
+            'dominik': [{
+                'number': 99,
+                'title': 'Open PR',
+                'url': 'https://github.com/test/repo/pull/99',
+                'repo': 'test/repo',
+                'additions': 80,
+                'deletions': 20,
+                'review_count': 0,
+                'requested_my_review': False
+            }]
+        }
+
+        formatter = OutputFormatter('test_user', filter_non_pr_authors=True)
+        html = formatter.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author, pr_authors=set())
+
+        review_table_section = html.split('<h2 id="review-table">', 1)[1].split('</table>', 1)[0]
+        assert 'data-username="dominik"' in review_table_section
+
+    def test_html_filter_non_pr_authors_keeps_users_without_open_prs_as_disabled(self):
+        """Users with authored PRs stay visible as disabled rows when they have no open PRs."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        reviewed_by_others['dominik'].prs_reviewed = 1
+        reviewed_by_others['dominik'].lines_reviewed = 120
+        reviewed_by_others['dominik'].additions_reviewed = 100
+        reviewed_by_others['dominik'].deletions_reviewed = 20
+
+        formatter = OutputFormatter('test_user', filter_non_pr_authors=True)
+        html = formatter.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author={}, pr_authors={'dominik'})
+
+        review_table_section = html.split('<h2 id="review-table">', 1)[1].split('</table>', 1)[0]
+        assert 'data-username="dominik"' in review_table_section
+        assert 'disabled" data-username="dominik"' in review_table_section
+        assert 'id="user-dominik"' in html
+
+    def test_filter_non_pr_authors_excludes_zero_interaction_open_pr_authors(self):
+        """Regression test: avoid noisy 0/0 rows from open PR authors without review history."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        reviewed_by_others['dominik'].prs_reviewed = 1
+        reviewed_by_others['dominik'].lines_reviewed = 120
+        reviewed_by_others['dominik'].additions_reviewed = 100
+        reviewed_by_others['dominik'].deletions_reviewed = 20
+
+        open_prs_by_author = {
+            'dominik': [{
+                'number': 99,
+                'title': 'Open PR',
+                'url': 'https://github.com/test/repo/pull/99',
+                'repo': 'test/repo',
+                'additions': 80,
+                'deletions': 20,
+                'review_count': 0,
+                'requested_my_review': False
+            }],
+            'new_user': [{
+                'number': 100,
+                'title': 'Fresh PR',
+                'url': 'https://github.com/test/repo/pull/100',
+                'repo': 'test/repo',
+                'additions': 10,
+                'deletions': 2,
+                'review_count': 0,
+                'requested_my_review': False
+            }]
+        }
+
+        formatter = OutputFormatter('test_user', filter_non_pr_authors=True)
+
+        with patch('sys.stdout', new=StringIO()) as fake_output:
+            formatter.print_summary(reviewed_by_me, reviewed_by_others, open_prs_by_author, pr_authors=set())
+            output = fake_output.getvalue()
+
+        review_balance_section = output.split("REVIEW BALANCE & NEXT ACTIONS", 1)[1].split("OPEN PRs THAT NEED YOUR REVIEW", 1)[0]
+        assert 'dominik' in review_balance_section
+        assert 'new_user' not in review_balance_section
+
+    def test_html_filter_non_pr_authors_excludes_zero_interaction_open_pr_authors(self):
+        """Regression test for HTML: drop 0/0 rows while keeping users with real interactions."""
+        reviewed_by_me = defaultdict(ReviewStats)
+        reviewed_by_others = defaultdict(ReviewStats)
+
+        reviewed_by_others['dominik'].prs_reviewed = 1
+        reviewed_by_others['dominik'].lines_reviewed = 120
+        reviewed_by_others['dominik'].additions_reviewed = 100
+        reviewed_by_others['dominik'].deletions_reviewed = 20
+
+        open_prs_by_author = {
+            'dominik': [{
+                'number': 99,
+                'title': 'Open PR',
+                'url': 'https://github.com/test/repo/pull/99',
+                'repo': 'test/repo',
+                'additions': 80,
+                'deletions': 20,
+                'review_count': 0,
+                'requested_my_review': False
+            }],
+            'new_user': [{
+                'number': 100,
+                'title': 'Fresh PR',
+                'url': 'https://github.com/test/repo/pull/100',
+                'repo': 'test/repo',
+                'additions': 10,
+                'deletions': 2,
+                'review_count': 0,
+                'requested_my_review': False
+            }]
+        }
+
+        formatter = OutputFormatter('test_user', filter_non_pr_authors=True)
+        html = formatter.generate_html(reviewed_by_me, reviewed_by_others, open_prs_by_author, pr_authors=set())
+
+        review_table_section = html.split('<h2 id="review-table">', 1)[1].split('</table>', 1)[0]
+        assert 'data-username="dominik"' in review_table_section
+        assert 'data-username="new_user"' not in review_table_section
 
     def test_filter_non_pr_authors_initialization(self):
         """Test that filter_non_pr_authors is properly initialized."""

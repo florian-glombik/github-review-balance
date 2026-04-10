@@ -38,6 +38,8 @@ def generate_html(
     if not all_users:
         return self._generate_empty_html()
 
+    effective_pr_authors = self._get_effective_pr_authors(pr_authors, open_prs_by_author)
+
     html_parts = []
     html_parts.append(self._generate_html_header(open_prs_by_author))
 
@@ -49,18 +51,18 @@ def generate_html(
         html_parts.append(self._generate_my_open_prs_html(my_open_prs, all_my_open_prs))
 
     # Review balance table
-    html_parts.append(self._generate_review_balance_html(all_users, reviewed_by_me, reviewed_by_others, pr_authors, open_prs_by_author, my_open_prs))
+    html_parts.append(self._generate_review_balance_html(all_users, reviewed_by_me, reviewed_by_others, effective_pr_authors, open_prs_by_author, my_open_prs))
 
     # Open PRs
-    html_parts.append(self._generate_open_prs_html(open_prs_by_author, reviewed_by_me, reviewed_by_others, my_open_prs, all_users, pr_authors))
+    html_parts.append(self._generate_open_prs_html(open_prs_by_author, reviewed_by_me, reviewed_by_others, my_open_prs, all_users, effective_pr_authors))
 
     # Detailed history (if enabled)
     if self.show_extended_report:
-        html_parts.append(self._generate_detailed_history_html(all_users, reviewed_by_me, reviewed_by_others, pr_authors))
+        html_parts.append(self._generate_detailed_history_html(all_users, reviewed_by_me, reviewed_by_others, effective_pr_authors))
 
     # Overall statistics (if enabled)
     if self.show_overall_statistics:
-        html_parts.append(self._generate_overall_stats_html(reviewed_by_me, reviewed_by_others, pr_authors))
+        html_parts.append(self._generate_overall_stats_html(reviewed_by_me, reviewed_by_others, effective_pr_authors))
 
     html_parts.append(self._generate_html_footer())
 

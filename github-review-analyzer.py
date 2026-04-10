@@ -188,10 +188,10 @@ def main():
         except ValueError:
             logging.warning(f"Invalid MAX_REVIEW_COUNT_THRESHOLD value '{threshold_env}', ignoring")
 
-    # Check if non-PR authors should be filtered out
+    # Check whether outputs should only include users who authored PRs in-range
     filter_non_pr_authors = os.environ.get('FILTER_NON_PR_AUTHORS', 'false').lower() in ('true', '1', 'yes')
     if filter_non_pr_authors:
-        logging.info("Filtering out users who have not opened any PRs")
+        logging.info("Filtering outputs to users who authored PRs in the analyzed timeframe")
 
     # Section collapse settings (default values match current behavior)
     section_settings_expanded = os.environ.get('SECTION_SETTINGS_EXPANDED', 'true').lower() in ('true', '1', 'yes')

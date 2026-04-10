@@ -233,34 +233,12 @@ def _generate_review_balance_html(
     my_open_prs: list = None
 ) -> str:
     """Generate HTML for review balance table."""
-    # Calculate review balance for each user
-    review_balance = []
-    for user in all_users:
-        my_reviews = reviewed_by_me[user]
-        their_reviews = reviewed_by_others[user]
-        balance = their_reviews.lines_reviewed - my_reviews.lines_reviewed
-        total_prs = my_reviews.prs_reviewed + their_reviews.prs_reviewed
-
-        # Filter out users who have not opened any PRs (only if flag is set)
-        if self.filter_non_pr_authors and pr_authors is not None and user not in pr_authors:
-            continue
-
-        review_balance.append({
-            'user': user,
-            'balance': balance,
-            'they_reviewed': their_reviews.lines_reviewed,
-            'they_additions': their_reviews.additions_reviewed,
-            'they_deletions': their_reviews.deletions_reviewed,
-            'i_reviewed': my_reviews.lines_reviewed,
-            'i_additions': my_reviews.additions_reviewed,
-            'i_deletions': my_reviews.deletions_reviewed,
-            'total_prs': total_prs,
-            'their_prs_i_reviewed': my_reviews.prs_reviewed,
-            'my_prs_they_reviewed': their_reviews.prs_reviewed
-        })
-
-    # Sort by specified column
-    review_balance = self._sort_review_balance(review_balance)
+    review_balance = self._build_review_balance_entries(
+        all_users,
+        reviewed_by_me,
+        reviewed_by_others,
+        pr_authors
+    )
 
     html = '<h2 id="review-table">Review Balance & Next Actions</h2>\n'
     html += '<table>\n'
@@ -640,10 +618,12 @@ def _generate_open_prs_html(
 
     # Generate sections for users without open PRs (for navigation from the table)
     if all_users:
-        # Filter users based on filter_non_pr_authors flag
-        filtered_users = all_users
-        if self.filter_non_pr_authors and pr_authors is not None:
-            filtered_users = {user for user in all_users if user in pr_authors}
+        filtered_users = self._filter_users_by_pr_authors(
+            all_users,
+            pr_authors,
+            reviewed_by_me,
+            reviewed_by_others
+        )
 
         # Get users without open PRs (use filtered_prs_by_author to account for review count threshold)
         users_with_open_prs = set(filtered_prs_by_author.keys())
@@ -828,10 +808,12 @@ def _generate_detailed_history_html(
     html = f'<details{detailed_history_open}>\n'
     html += '<summary>Detailed Review History</summary>\n'
 
-    # Filter users based on filter_non_pr_authors flag
-    filtered_users = all_users
-    if self.filter_non_pr_authors and pr_authors is not None:
-        filtered_users = {user for user in all_users if user in pr_authors}
+    filtered_users = self._filter_users_by_pr_authors(
+        all_users,
+        pr_authors,
+        reviewed_by_me,
+        reviewed_by_others
+    )
 
     # Sort users by total interaction
     sorted_users = sorted(
@@ -913,12 +895,13 @@ def _generate_overall_stats_html(
     """Generate HTML for overall statistics."""
     html = '<h2>Overall Statistics</h2>\n'
 
-    # Filter users based on filter_non_pr_authors flag
     all_users = set(reviewed_by_me.keys()) | set(reviewed_by_others.keys())
-    if self.filter_non_pr_authors and pr_authors is not None:
-        filtered_users = {user for user in all_users if user in pr_authors}
-    else:
-        filtered_users = all_users
+    filtered_users = self._filter_users_by_pr_authors(
+        all_users,
+        pr_authors,
+        reviewed_by_me,
+        reviewed_by_others
+    )
 
     # Calculate stats only for filtered users
     total_reviewed_by_me = sum(reviewed_by_me[u].prs_reviewed for u in filtered_users)

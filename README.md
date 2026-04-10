@@ -102,7 +102,7 @@ You can configure the script using environment variables in your `.env` file:
 - `SHOW_EXTENDED_REPORT`: Show detailed review history per user (default: false)
 - `SHOW_OVERALL_STATISTICS`: Show overall statistics section (default: true)
 - `MAX_REVIEW_COUNT_THRESHOLD`: Filter out PRs with N or more reviews from the open PRs list (default: no filtering)
-- `FILTER_NON_PR_AUTHORS`: Filter out users who have not opened any PRs (default: true)
+- `FILTER_NON_PR_AUTHORS`: Show only users who authored PRs in the analyzed window; they remain visible as disabled rows when no open PR is currently reviewable (default: true)
 
 ### How to Run The script
 
@@ -138,7 +138,7 @@ You can configure the script using environment variables in your `.env` file:
 - `SHOW_EXTENDED_REPORT`: Show detailed review history per user (default: false)
 - `SHOW_OVERALL_STATISTICS`: Show overall statistics section (default: true)
 - `MAX_REVIEW_COUNT_THRESHOLD`: Filter out PRs with N or more reviews from the open PRs list (default: no filtering)
-- `FILTER_NON_PR_AUTHORS`: Filter out users who have not opened any PRs (default: true)
+- `FILTER_NON_PR_AUTHORS`: Show only users who authored PRs in the analyzed window; they remain visible as disabled rows when no open PR is currently reviewable (default: true)
 
 ### Extended Report
 
